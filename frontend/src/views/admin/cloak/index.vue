@@ -43,10 +43,7 @@
   import { ref } from 'vue';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage, useModal } from 'ele-admin-plus';
-  import {
-    pageAdminCloaks,
-    updateAdminCloakStatus
-  } from '@/api/admin/cloak';
+  import { pageAdminCloaks, updateAdminCloakStatus } from '@/api/admin/cloak';
 
   defineOptions({ name: 'AdminCloak' });
 
@@ -59,9 +56,21 @@
     { prop: 'domain', label: '关联域名', minWidth: 180 },
     { prop: 'merchantName', label: '所属商户', minWidth: 160 },
     { prop: 'todayVisits', label: '今日访问', width: 110, align: 'center' },
-    { prop: 'status', label: '状态', width: 100, align: 'center', slot: 'status' },
+    {
+      prop: 'status',
+      label: '状态',
+      width: 100,
+      align: 'center',
+      slot: 'status'
+    },
     { prop: 'updatedAt', label: '更新时间', minWidth: 160, align: 'center' },
-    { columnKey: 'action', label: '操作', width: 170, align: 'center', slot: 'action' }
+    {
+      columnKey: 'action',
+      label: '操作',
+      width: 170,
+      align: 'center',
+      slot: 'action'
+    }
   ];
 
   const datasource = ({ page, limit, where }) => {

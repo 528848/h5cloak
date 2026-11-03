@@ -1,7 +1,13 @@
 <template>
   <ele-page>
     <el-row :gutter="16">
-      <el-col v-for="item in metrics" :key="item.label" :lg="6" :md="12" :xs="24">
+      <el-col
+        v-for="item in metrics"
+        :key="item.label"
+        :lg="6"
+        :md="12"
+        :xs="24"
+      >
         <ele-card :body-style="{ padding: '18px 20px' }">
           <div class="metric-label">{{ item.label }}</div>
           <div class="metric-value">{{ item.value }}</div>

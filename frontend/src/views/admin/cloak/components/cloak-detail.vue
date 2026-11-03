@@ -1,10 +1,6 @@
 <!-- 斗篷详情弹窗 -->
 <template>
-  <ele-modal
-    :width="720"
-    title="斗篷详情"
-    v-bind="modalProps"
-  >
+  <ele-modal :width="720" title="斗篷详情" v-bind="modalProps">
     <el-descriptions :column="2" border class="cloak-detail-desc">
       <el-descriptions-item label="斗篷名称">
         {{ data.cloakName || '-' }}
@@ -16,7 +12,10 @@
         {{ data.domain || '-' }}
       </el-descriptions-item>
       <el-descriptions-item label="状态">
-        <el-tag :type="data.status === 'enabled' ? 'success' : 'info'" size="small">
+        <el-tag
+          :type="data.status === 'enabled' ? 'success' : 'info'"
+          size="small"
+        >
           {{ data.status === 'enabled' ? '启用' : '停用' }}
         </el-tag>
       </el-descriptions-item>
@@ -49,7 +48,9 @@
       <el-descriptions-item label="审核链接" :span="2">
         <div class="cloak-detail-link-row">
           <span class="cloak-detail-link-inline">
-            <span class="cloak-detail-link-text">{{ data.whiteUrl || '-' }}</span>
+            <span class="cloak-detail-link-text">{{
+              data.whiteUrl || '-'
+            }}</span>
             <ele-copyable
               v-if="isCopyable(data.whiteUrl)"
               :text="data.whiteUrl"
@@ -63,7 +64,9 @@
       <el-descriptions-item label="跳转短链" :span="2">
         <div class="cloak-detail-link-row">
           <span class="cloak-detail-link-inline">
-            <span class="cloak-detail-link-text">{{ data.shortLinkUrl || '-' }}</span>
+            <span class="cloak-detail-link-text">{{
+              data.shortLinkUrl || '-'
+            }}</span>
             <ele-copyable
               v-if="isCopyable(data.shortLinkUrl)"
               :text="data.shortLinkUrl"
@@ -110,7 +113,9 @@
     </el-descriptions>
     <template #footer>
       <btn-items
-        :items="[{ preset: 'cancel', title: '关闭', onClick: () => closeModal() }]"
+        :items="[
+          { preset: 'cancel', title: '关闭', onClick: () => closeModal() }
+        ]"
       />
     </template>
   </ele-modal>

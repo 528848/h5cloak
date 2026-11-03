@@ -127,10 +127,7 @@
             <el-radio value="system">系统链接</el-radio>
             <el-radio value="custom">自定义链接</el-radio>
           </el-radio-group>
-          <span
-            v-if="form.rules.shortLinkType === 'system'"
-            class="field-tip"
-          >
+          <span v-if="form.rules.shortLinkType === 'system'" class="field-tip">
             {{
               form.rules.shortLinkUrl
                 ? `当前短链：${form.rules.shortLinkUrl}`
@@ -360,7 +357,12 @@
       { max: 50, message: '名称不能超过 50 个字符', trigger: 'blur' }
     ],
     domainId: [
-      { required: true, message: '请选择关联域名', type: 'number', trigger: 'change' }
+      {
+        required: true,
+        message: '请选择关联域名',
+        type: 'number',
+        trigger: 'change'
+      }
     ],
     whiteUrl: [
       { required: true, message: '请输入审核链接', trigger: 'blur' },
@@ -372,7 +374,9 @@
     'rules.shortLinkType': [
       { required: true, message: '请选择跳转短链类型', trigger: 'change' }
     ],
-    'rules.mode': [{ required: true, message: '请选择模式', trigger: 'change' }],
+    'rules.mode': [
+      { required: true, message: '请选择模式', trigger: 'change' }
+    ],
     targetRegionPaths: [
       {
         required: true,
@@ -483,7 +487,9 @@
 
   const assignFromRow = (row, copy = false) => {
     const rowRules = row.rules || {};
-    const realUrls = row.realUrls?.length ? [...row.realUrls] : [row.blackUrl || ''];
+    const realUrls = row.realUrls?.length
+      ? [...row.realUrls]
+      : [row.blackUrl || ''];
     linkRowKeys.value = realUrls.map((_, index) => index);
     linkRowSeed = realUrls.length;
 
@@ -604,7 +610,9 @@
     background: #fff;
     color: var(--el-text-color-secondary);
     cursor: pointer;
-    transition: color 0.2s, border-color 0.2s;
+    transition:
+      color 0.2s,
+      border-color 0.2s;
   }
 
   .link-action-btn:hover {

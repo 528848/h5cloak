@@ -38,7 +38,9 @@
           disabled
           placeholder="创建成功后生效"
         />
-        <div class="field-tip">预览值仅供参考，创建成功后以系统生成的 Token 为准</div>
+        <div class="field-tip"
+          >预览值仅供参考，创建成功后以系统生成的 Token 为准</div
+        >
       </el-form-item>
 
       <el-form-item label="模式" prop="rules.mode">
@@ -147,11 +149,16 @@
 
   const rules = reactive({
     name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-    'rules.mode': [{ required: true, message: '请选择模式', trigger: 'change' }],
+    'rules.mode': [
+      { required: true, message: '请选择模式', trigger: 'change' }
+    ],
     targetRegionPaths: [
       {
         validator: (_rule, value, callback) => {
-          if (form.rules.mode === 'cloak' && (!Array.isArray(value) || value.length === 0)) {
+          if (
+            form.rules.mode === 'cloak' &&
+            (!Array.isArray(value) || value.length === 0)
+          ) {
             callback(new Error('请选择投放地区'));
             return;
           }

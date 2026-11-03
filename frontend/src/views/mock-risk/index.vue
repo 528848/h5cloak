@@ -9,7 +9,13 @@
     />
 
     <el-row :gutter="12" class="mb16">
-      <el-col v-for="item in overviewMetrics" :key="item.label" :xs="24" :sm="12" :md="6">
+      <el-col
+        v-for="item in overviewMetrics"
+        :key="item.label"
+        :xs="24"
+        :sm="12"
+        :md="6"
+      >
         <el-card shadow="hover">
           <div class="metric-label">{{ item.label }}</div>
           <div class="metric-value">{{ item.value }}</div>
@@ -37,15 +43,27 @@
         </el-tab-pane>
 
         <el-tab-pane label="商品池管理" name="product">
-          <module-table title="商品池清单" :data="productPoolRows" :columns="productColumns" />
+          <module-table
+            title="商品池清单"
+            :data="productPoolRows"
+            :columns="productColumns"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="AB账单管理" name="abBill">
-          <module-table title="AB账单任务列表" :data="abBillRows" :columns="abBillColumns" />
+          <module-table
+            title="AB账单任务列表"
+            :data="abBillRows"
+            :columns="abBillColumns"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="客诉中台" name="complaint">
-          <module-table title="客诉工单列表" :data="complaintRows" :columns="complaintColumns" />
+          <module-table
+            title="客诉工单列表"
+            :data="complaintRows"
+            :columns="complaintColumns"
+          />
         </el-tab-pane>
 
         <el-tab-pane label="履约风控" name="fulfillment">
@@ -65,7 +83,11 @@
         </el-tab-pane>
 
         <el-tab-pane label="商户管理/客户后台" name="merchant">
-          <module-table title="商户风险治理列表" :data="merchantRows" :columns="merchantColumns" />
+          <module-table
+            title="商户风险治理列表"
+            :data="merchantRows"
+            :columns="merchantColumns"
+          />
         </el-tab-pane>
       </el-tabs>
     </el-card>
@@ -201,8 +223,16 @@
   const abBillColumns = computed(() => [
     { prop: 'orderNo', label: '订单号' },
     { prop: 'merchantName', label: '商户' },
-    { prop: 'aBillAmount', label: 'A账单金额', formatter: ({ row }) => `$${row.aBillAmount}` },
-    { prop: 'bBillAmount', label: 'B账单金额', formatter: ({ row }) => `$${row.bBillAmount}` },
+    {
+      prop: 'aBillAmount',
+      label: 'A账单金额',
+      formatter: ({ row }) => `$${row.aBillAmount}`
+    },
+    {
+      prop: 'bBillAmount',
+      label: 'B账单金额',
+      formatter: ({ row }) => `$${row.bBillAmount}`
+    },
     { prop: 'itemDiff', label: '商品数量差异' },
     { prop: 'consistencyStatus', label: '金额一致性', tag: true },
     { prop: 'submitStatus', label: '提交状态', tag: true }
@@ -233,7 +263,11 @@
     { prop: 'strategyName', label: '策略名称' },
     { prop: 'strategyType', label: '策略类型' },
     { prop: 'priority', label: '优先级' },
-    { prop: 'hitRate', label: '命中率', formatter: ({ row }) => asPercent(row.hitRate) },
+    {
+      prop: 'hitRate',
+      label: '命中率',
+      formatter: ({ row }) => asPercent(row.hitRate)
+    },
     {
       prop: 'successRate',
       label: '策略成功率',
@@ -295,17 +329,20 @@
                           h(
                             'el-tag',
                             {
-                              type: statusTypeMap[scope.row[col.prop]] || 'info',
+                              type:
+                                statusTypeMap[scope.row[col.prop]] || 'info',
                               effect: 'light'
                             },
-                            () => labelMap[scope.row[col.prop]] || scope.row[col.prop]
+                            () =>
+                              labelMap[scope.row[col.prop]] ||
+                              scope.row[col.prop]
                           )
                       }
                     : col.formatter
-                    ? {
-                        default: (scope) => col.formatter(scope)
-                      }
-                    : void 0
+                      ? {
+                          default: (scope) => col.formatter(scope)
+                        }
+                      : void 0
                 )
               )
           )

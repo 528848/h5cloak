@@ -10,11 +10,7 @@
       <el-row :gutter="12" align="middle">
         <el-col :xl="6" :lg="6" :md="12" :sm="12" :xs="24">
           <el-form-item label="名称">
-            <el-input
-              v-model.trim="form.name"
-              clearable
-              placeholder="请输入"
-            />
+            <el-input v-model.trim="form.name" clearable placeholder="请输入" />
           </el-form-item>
         </el-col>
         <el-col :xl="6" :lg="6" :md="12" :sm="12" :xs="24">
@@ -45,7 +41,14 @@
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :xl="6" :lg="6" :md="24" :sm="24" :xs="24" class="search-btn-col">
+        <el-col
+          :xl="6"
+          :lg="6"
+          :md="24"
+          :sm="24"
+          :xs="24"
+          class="search-btn-col"
+        >
           <el-form-item label-width="0px">
             <btn-items
               :wrap="false"

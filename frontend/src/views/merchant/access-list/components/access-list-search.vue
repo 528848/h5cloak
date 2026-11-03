@@ -30,7 +30,14 @@
             />
           </el-form-item>
         </el-col>
-        <el-col :xl="12" :lg="12" :md="24" :sm="24" :xs="24" class="search-btn-col">
+        <el-col
+          :xl="12"
+          :lg="12"
+          :md="24"
+          :sm="24"
+          :xs="24"
+          class="search-btn-col"
+        >
           <el-form-item label-width="0px">
             <btn-items
               :wrap="false"

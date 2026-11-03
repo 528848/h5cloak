@@ -23,7 +23,10 @@
           />
         </template>
         <template #listType="{ row }">
-          <el-tag :type="row.listType === 'white' ? 'success' : 'danger'" size="small">
+          <el-tag
+            :type="row.listType === 'white' ? 'success' : 'danger'"
+            size="small"
+          >
             {{ row.listType === 'white' ? '白名单' : '黑名单' }}
           </el-tag>
         </template>
@@ -34,7 +37,10 @@
           {{ formatScope(row) }}
         </template>
         <template #status="{ row }">
-          <el-tag :type="row.status === 'enabled' ? 'success' : 'info'" size="small">
+          <el-tag
+            :type="row.status === 'enabled' ? 'success' : 'info'"
+            size="small"
+          >
             {{ row.status === 'enabled' ? '启用' : '停用' }}
           </el-tag>
         </template>
@@ -91,13 +97,44 @@
 
   const columns = [
     { type: 'index', columnKey: 'index', width: 55, align: 'center' },
-    { prop: 'listType', label: '名单类型', width: 110, align: 'center', slot: 'listType' },
-    { prop: 'targetType', label: '目标类型', width: 120, align: 'center', slot: 'targetType' },
+    {
+      prop: 'listType',
+      label: '名单类型',
+      width: 110,
+      align: 'center',
+      slot: 'listType'
+    },
+    {
+      prop: 'targetType',
+      label: '目标类型',
+      width: 120,
+      align: 'center',
+      slot: 'targetType'
+    },
     { prop: 'targetValue', label: '匹配值', minWidth: 180 },
-    { prop: 'scope', label: '作用范围', minWidth: 140, align: 'center', slot: 'scope' },
-    { prop: 'status', label: '状态', width: 100, align: 'center', slot: 'status' },
+    {
+      prop: 'scope',
+      label: '作用范围',
+      minWidth: 140,
+      align: 'center',
+      slot: 'scope'
+    },
+    {
+      prop: 'status',
+      label: '状态',
+      width: 100,
+      align: 'center',
+      slot: 'status'
+    },
     { prop: 'remark', label: '备注', minWidth: 160 },
-    { columnKey: 'action', label: '操作', width: 180, align: 'center', slot: 'action', fixed: 'right' }
+    {
+      columnKey: 'action',
+      label: '操作',
+      width: 180,
+      align: 'center',
+      slot: 'action',
+      fixed: 'right'
+    }
   ];
 
   const formatScope = (row) => {
@@ -139,7 +176,10 @@
       draggable: true
     })
       .then(() => {
-        const loading = EleMessage.loading({ message: '请求中..', plain: true });
+        const loading = EleMessage.loading({
+          message: '请求中..',
+          plain: true
+        });
         updateAccessListStatus(row.listId, nextStatus)
           .then((msg) => {
             loading.close();
@@ -160,7 +200,10 @@
       draggable: true
     })
       .then(() => {
-        const loading = EleMessage.loading({ message: '请求中..', plain: true });
+        const loading = EleMessage.loading({
+          message: '请求中..',
+          plain: true
+        });
         removeAccessList(row.listId)
           .then((msg) => {
             loading.close();

@@ -36,7 +36,13 @@
     { prop: 'domain', label: '域名', minWidth: 180 },
     { prop: 'cloakName', label: '斗篷', minWidth: 150 },
     { prop: 'ipSummary', label: 'IP 摘要', minWidth: 130 },
-    { prop: 'finalAction', label: '最终动作', width: 110, align: 'center', slot: 'finalAction' },
+    {
+      prop: 'finalAction',
+      label: '最终动作',
+      width: 110,
+      align: 'center',
+      slot: 'finalAction'
+    },
     { prop: 'latencyMs', label: '耗时(ms)', width: 110, align: 'center' },
     { prop: 'createdAt', label: '访问时间', minWidth: 160, align: 'center' }
   ];

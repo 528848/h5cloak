@@ -26,7 +26,9 @@
           <div class="cloak-link-info">
             <div class="cloak-link-row">
               <span class="cloak-link-label">真实链接:</span>
-              <span class="cloak-link-url" :title="row.blackUrl">{{ row.blackUrl }}</span>
+              <span class="cloak-link-url" :title="row.blackUrl">{{
+                row.blackUrl
+              }}</span>
               <ele-copyable
                 v-if="row.blackUrl"
                 :text="row.blackUrl"
@@ -35,7 +37,9 @@
             </div>
             <div class="cloak-link-row">
               <span class="cloak-link-label">审核链接:</span>
-              <span class="cloak-link-url" :title="row.whiteUrl">{{ row.whiteUrl }}</span>
+              <span class="cloak-link-url" :title="row.whiteUrl">{{
+                row.whiteUrl
+              }}</span>
               <ele-copyable
                 v-if="row.whiteUrl"
                 :text="row.whiteUrl"
@@ -75,11 +79,15 @@
             </div>
             <div class="cloak-stat-row">
               <span class="cloak-stat-label">今日审核链接次数</span>
-              <span class="cloak-stat-value">{{ row.todayWhiteHits ?? 0 }}</span>
+              <span class="cloak-stat-value">{{
+                row.todayWhiteHits ?? 0
+              }}</span>
             </div>
             <div class="cloak-stat-row">
               <span class="cloak-stat-label">今日真实链接次数</span>
-              <span class="cloak-stat-value">{{ row.todayBlackHits ?? 0 }}</span>
+              <span class="cloak-stat-value">{{
+                row.todayBlackHits ?? 0
+              }}</span>
             </div>
           </div>
         </template>

@@ -9,12 +9,7 @@ import { useUserStore } from '@/store/modules/user';
 import { getToken, removeToken } from '@/utils/token-util';
 import { isPortalUser, portalDeniedMessage } from '@portal';
 import { setPageTitle } from '@/utils/page-title-util';
-import {
-  routes,
-  getMenuRoutes,
-  isWhiteList,
-  addNotFoundRoute
-} from './routes';
+import { routes, getMenuRoutes, isWhiteList, addNotFoundRoute } from './routes';
 
 NProgress.configure({
   speed: 200,

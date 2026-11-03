@@ -102,7 +102,13 @@
     { prop: 'mode', label: '模式', width: 90, align: 'center', slot: 'mode' },
     { prop: 'keyPrefix', label: 'Token 前缀', minWidth: 120 },
     { prop: 'remark', label: '备注', minWidth: 120, showOverflowTooltip: true },
-    { prop: 'status', label: '状态', width: 90, align: 'center', slot: 'status' },
+    {
+      prop: 'status',
+      label: '状态',
+      width: 90,
+      align: 'center',
+      slot: 'status'
+    },
     {
       prop: 'createdAt',
       label: '创建时间',
@@ -116,7 +122,13 @@
       align: 'center',
       slot: 'lastCalledAt'
     },
-    { columnKey: 'action', label: '操作', width: 150, align: 'center', slot: 'action' }
+    {
+      columnKey: 'action',
+      label: '操作',
+      width: 150,
+      align: 'center',
+      slot: 'action'
+    }
   ];
 
   const datasource = ({ page, limit, where }) => {

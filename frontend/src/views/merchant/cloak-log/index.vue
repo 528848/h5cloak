@@ -37,7 +37,13 @@
     { prop: 'ipSummary', label: 'IP 摘要', minWidth: 130 },
     { prop: 'country', label: '国家', width: 100, align: 'center' },
     { prop: 'deviceType', label: '设备', width: 100, align: 'center' },
-    { prop: 'finalAction', label: '最终动作', width: 110, align: 'center', slot: 'finalAction' },
+    {
+      prop: 'finalAction',
+      label: '最终动作',
+      width: 110,
+      align: 'center',
+      slot: 'finalAction'
+    },
     { prop: 'createdAt', label: '访问时间', minWidth: 160, align: 'center' }
   ];
 

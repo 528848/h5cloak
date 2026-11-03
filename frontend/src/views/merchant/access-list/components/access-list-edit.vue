@@ -21,7 +21,11 @@
         </el-radio-group>
       </el-form-item>
       <el-form-item label="目标类型" prop="targetType">
-        <el-select v-model="form.targetType" class="ele-fluid" placeholder="请选择">
+        <el-select
+          v-model="form.targetType"
+          class="ele-fluid"
+          placeholder="请选择"
+        >
           <el-option label="IP" value="ip" />
           <el-option label="User-Agent" value="ua" />
           <el-option label="Referer" value="referer" />
@@ -153,8 +157,12 @@
   });
 
   const rules = reactive({
-    listType: [{ required: true, message: '请选择名单类型', trigger: 'change' }],
-    targetType: [{ required: true, message: '请选择目标类型', trigger: 'change' }],
+    listType: [
+      { required: true, message: '请选择名单类型', trigger: 'change' }
+    ],
+    targetType: [
+      { required: true, message: '请选择目标类型', trigger: 'change' }
+    ],
     targetValue: [
       { required: true, message: '请输入匹配值', trigger: 'blur' },
       {
