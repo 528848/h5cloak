@@ -27,6 +27,8 @@ $script:PidDir = Join-Path $LocalDir 'pids'
 function Use-Toolchain {
     $env:PATH = "$GoBin;$NodeBin;$MysqlBin;$RedisBin;" + $env:PATH
     $env:GOFLAGS = '-mod=mod'
+    # 固定使用本地 Go 版本，避免依赖升级时自动下载新工具链
+    $env:GOTOOLCHAIN = 'local'
 }
 
 function Ensure-Dir([string]$Path) {

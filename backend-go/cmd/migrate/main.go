@@ -4,11 +4,13 @@
 //	migrate down [n]      回滚 n 步（默认 1）
 //	migrate status        显示当前版本
 //	migrate create <name> 生成一对空迁移文件
+//	migrate seed          写入初始角色、菜单与账号（幂等）
 //
 // 后续迭代会增加 import-v1 子命令用于 V1 数据迁移。
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -20,7 +22,10 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/mysql"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"go.uber.org/zap"
 
+	mysqladapter "cloak/internal/adapter/mysql"
+	"cloak/internal/app/seed"
 	"cloak/internal/config"
 )
 
@@ -47,6 +52,15 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+
+	if cmd == "seed" {
+		if err := runSeed(cfg); err != nil {
+			fail(err)
+		}
+		fmt.Println("seed ok")
+		return
+	}
+
 	m, err := migrate.New("file://"+filepath.ToSlash(dir), "mysql://"+stripParseTime(cfg.MySQL.DSN))
 	if err != nil {
 		fail(err)
@@ -130,8 +144,28 @@ func stripParseTime(dsn string) string {
 	return dsn + "?multiStatements=true"
 }
 
+func runSeed(cfg *config.Config) error {
+	db, err := mysqladapter.Open(cfg.MySQL, zap.NewNop())
+	if err != nil {
+		return err
+	}
+	return seed.Run(context.Background(), db, seed.Options{
+		AdminUsername:    envOr("CLOAK_SEED_ADMIN_USER", "admin"),
+		AdminPassword:    envOr("CLOAK_SEED_ADMIN_PASSWORD", "admin123"),
+		MerchantUsername: envOr("CLOAK_SEED_MERCHANT_USER", "merchant"),
+		MerchantPassword: envOr("CLOAK_SEED_MERCHANT_PASSWORD", "merchant123"),
+	})
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: migrate up | down [n] | status | create <name>")
+	fmt.Fprintln(os.Stderr, "usage: migrate up | down [n] | status | create <name> | seed")
 }
 
 func fail(err error) {

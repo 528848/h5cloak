@@ -38,10 +38,10 @@ func Page(c *gin.Context, rows any, total int64) {
 }
 
 // Error 返回业务错误。HTTP 状态保持 200，由 code 表达结果，与若依前端的拦截器一致；
-// 401/403 同时设置 HTTP 状态，便于网关与日志识别。
+// 只有未登录（401）同时设置 HTTP 状态，前端据此跳转登录页。
 func Error(c *gin.Context, code int, msg string) {
 	status := http.StatusOK
-	if code == http.StatusUnauthorized || code == http.StatusForbidden {
+	if code == http.StatusUnauthorized {
 		status = code
 	}
 	c.AbortWithStatusJSON(status, Body{Code: code, Msg: msg})

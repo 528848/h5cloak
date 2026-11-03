@@ -25,10 +25,12 @@ type Config struct {
 }
 
 type App struct {
-	Name     string `mapstructure:"name"`
-	Env      string `mapstructure:"env"` // local, test, production
-	NodeName string `mapstructure:"node_name"`
-	Timezone string `mapstructure:"timezone"`
+	Name      string `mapstructure:"name"`
+	Env       string `mapstructure:"env"` // local, test, production
+	NodeName  string `mapstructure:"node_name"`
+	Timezone  string `mapstructure:"timezone"`
+	PublicURL string `mapstructure:"public_url"` // 对外访问地址，用于拼接上传文件 URL
+	UploadDir string `mapstructure:"upload_dir"` // 本地上传目录
 }
 
 type HTTP struct {
@@ -126,11 +128,13 @@ func setDefaults(v *viper.Viper, service string) {
 	v.SetDefault("app.env", "local")
 	v.SetDefault("app.node_name", "local-1")
 	v.SetDefault("app.timezone", "Asia/Shanghai")
+	v.SetDefault("app.upload_dir", "./uploads")
 
 	switch service {
 	case "admin":
 		v.SetDefault("http.addr", "127.0.0.1:8080")
 		v.SetDefault("http.metrics_addr", "127.0.0.1:9080")
+		v.SetDefault("app.public_url", "http://127.0.0.1:8080")
 	case "gateway":
 		v.SetDefault("http.addr", "127.0.0.1:8090")
 		v.SetDefault("http.metrics_addr", "127.0.0.1:9090")
