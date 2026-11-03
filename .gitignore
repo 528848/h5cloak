@@ -20,6 +20,7 @@ backend/.env
 # Go
 backend-go/bin/
 backend-go/.env
+backend-go/coverage
 backend-go/coverage.out
 
 # 参考资料与脚手架，不入库
