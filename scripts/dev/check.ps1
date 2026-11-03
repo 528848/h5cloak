@@ -42,11 +42,13 @@ if ($unformatted) {
 
 if ($Frontend) {
     Set-Location (Join-Path $Root 'frontend')
+    # Windows PowerShell 调用 npm.ps1 时会把命令切成 "pm"，改走 npm.cmd
+    $npm = Join-Path $NodeBin 'npm.cmd'
     Write-Host '== frontend lint =='
-    & npm run lint:eslint
+    & $npm run lint:eslint
     if ($LASTEXITCODE -ne 0) { $failed = $true }
     Write-Host '== frontend build (admin + merchant) =='
-    & npm run build
+    & $npm run build
     if ($LASTEXITCODE -ne 0) { $failed = $true }
 }
 

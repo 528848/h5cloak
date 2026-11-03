@@ -9,8 +9,10 @@ import (
 
 	"go.uber.org/zap"
 
+	"cloak/internal/adapter/mysql"
 	"cloak/internal/adapter/redis"
 	"cloak/internal/app/bootstrap"
+	"cloak/internal/app/sitesvc"
 	"cloak/internal/pkg/httpserver"
 )
 
@@ -27,6 +29,12 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	if db, err := mysql.Open(rt.Cfg.MySQL, rt.Log); err != nil {
+		rt.Log.Warn("mysql unavailable, origin probe disabled", zap.Error(err))
+	} else {
+		sites := sitesvc.New(mysql.NewSiteRepo(db), mysql.NewMerchantRepo(db), rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
+		go probeLoop(ctx, rt.Log, sites)
+	}
 	go heartbeat(ctx, rt.Log)
 
 	srv := httpserver.New(rt.Log, rt.Cfg.HTTP, nil, rt.Metrics)
@@ -35,6 +43,21 @@ func main() {
 		os.Exit(1)
 	}
 	rt.Log.Info("stopped")
+}
+
+func probeLoop(ctx context.Context, log *zap.Logger, sites *sitesvc.Service) {
+	t := time.NewTicker(2 * time.Minute)
+	defer t.Stop()
+	sites.ProbeDue(ctx, 20)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			log.Debug("probe origins")
+			sites.ProbeDue(ctx, 20)
+		}
+	}
 }
 
 func heartbeat(ctx context.Context, log *zap.Logger) {

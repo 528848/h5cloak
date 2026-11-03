@@ -12,6 +12,7 @@ import (
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/bootstrap"
 	"cloak/internal/app/merchantsvc"
+	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/auth"
 	"cloak/internal/pkg/httpserver"
@@ -44,12 +45,14 @@ func main() {
 	authSvc := authsvc.New(repo, repo, rbacSvc, tokens, locker, rt.Log)
 	merchantSvc := merchantsvc.New(merchantRepo, repo, repo, tokens)
 	userSvc := usersvc.New(repo, repo, merchantRepo, tokens)
+	siteSvc := sitesvc.New(mysql.NewSiteRepo(db), merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
 
 	router := admin.NewRouter(admin.Deps{
 		Cfg: rt.Cfg, Log: rt.Log, Metrics: rt.Metrics,
 		Auth:      authSvc,
 		Merchants: merchantSvc,
 		Users:     userSvc,
+		Sites:     siteSvc,
 		Repo:      merchantRepo,
 		Authn:     middleware.NewAuthenticator(tokens, repo, rbacSvc),
 		OpLog:     middleware.NewOperationLogger(repo, rt.Log),

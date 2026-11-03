@@ -8,7 +8,7 @@ import {
 } from '@/config/setting';
 import Layout from '@/layout/index.vue';
 import RedirectLayout from '@/components/RedirectLayout/index.vue';
-import { viewModules } from '@portal';
+import { APP_PORTAL, viewModules } from '@portal';
 
 /**
  * 静态路由
@@ -76,6 +76,14 @@ export function getMenuRoutes(menus, homePath) {
       childRoutes.push(temp); // 需要外层布局的路由
     }
   });
+  // 站点配置是独立表单页，不进菜单
+  if (APP_PORTAL === 'merchant') {
+    childRoutes.push({
+      path: '/merchant/site/form',
+      component: () => import('@/views/merchant/site/form/index.vue'),
+      meta: { title: '站点配置' }
+    });
+  }
   return layoutRoutes;
 }
 

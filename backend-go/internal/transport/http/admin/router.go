@@ -10,6 +10,7 @@ import (
 
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/merchantsvc"
+	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/config"
 	"cloak/internal/domain/identity"
@@ -30,6 +31,7 @@ type Deps struct {
 	Auth      *authsvc.Service
 	Merchants *merchantsvc.Service
 	Users     *usersvc.Service
+	Sites     *sitesvc.Service
 	Repo      identity.MerchantRepository
 	Authn     *middleware.Authenticator
 	OpLog     *middleware.OperationLogger
@@ -109,6 +111,37 @@ func NewRouter(d Deps) *gin.Engine {
 	adminG.PUT("/merchant/:id", middleware.RequirePerm("merchant:account:edit"), mh.update)
 	adminG.PUT("/merchant/:id/quota", middleware.RequirePerm("merchant:account:quota"), mh.updateQuota)
 	adminG.PUT("/merchant/:id/resetPwd", middleware.RequirePerm("merchant:account:resetPwd"), mh.resetPwd)
+
+	if d.Sites != nil {
+		sh := &siteHandler{svc: d.Sites}
+		merchantG.GET("/site/list", middleware.RequirePerm("site:site:list"), sh.list)
+		merchantG.POST("/site", middleware.RequirePerm("site:site:add"), sh.create)
+		merchantG.GET("/site/stats", middleware.RequirePerm("site:site:list"), sh.stats)
+		merchantG.GET("/site/options", middleware.RequirePerm("site:site:list"), sh.options)
+		merchantG.GET("/site/guide", middleware.RequirePerm("site:site:list"), sh.guide)
+		merchantG.GET("/site/templates", middleware.RequirePerm("site:site:list"), sh.templates)
+		merchantG.POST("/site/templates/:id/preview", middleware.RequirePerm("site:site:list"), sh.previewTemplate)
+		merchantG.GET("/site/:id", middleware.RequirePerm("site:site:list"), sh.get)
+		merchantG.PUT("/site/:id", middleware.RequirePerm("site:site:edit"), sh.update)
+		merchantG.DELETE("/site/:id", middleware.RequirePerm("site:site:remove"), sh.remove)
+		merchantG.PUT("/site/changeStatus", middleware.RequirePerm("site:site:status"), sh.changeStatus)
+		merchantG.POST("/site/:id/secret", middleware.RequirePerm("site:site:secret"), sh.resetSecret)
+		merchantG.PUT("/site/:id/origin", middleware.RequirePerm("site:site:edit"), sh.saveOrigin)
+		merchantG.POST("/site/:id/origin/probe", middleware.RequirePerm("site:site:edit"), sh.probeOrigin)
+		merchantG.PUT("/site/:id/review", middleware.RequirePerm("site:site:edit"), sh.saveReview)
+		merchantG.POST("/site/:id/package", middleware.RequirePerm("site:site:edit"), sh.uploadPackage)
+		merchantG.PUT("/site/:id/path-rules", middleware.RequirePerm("site:site:edit"), sh.saveRules)
+		merchantG.GET("/domain/list", middleware.RequirePerm("site:domain:list"), sh.listDomains)
+		merchantG.POST("/site/:id/domain", middleware.RequirePerm("site:domain:add"), sh.addDomain)
+		merchantG.POST("/domain/:id/verify", middleware.RequirePerm("site:domain:verify"), sh.verifyDomain)
+		merchantG.DELETE("/domain/:id", middleware.RequirePerm("site:domain:remove"), sh.removeDomain)
+
+		adminG.GET("/site/list", middleware.RequirePerm("site:site:list"), sh.list)
+		adminG.GET("/site/stats", middleware.RequirePerm("site:site:list"), sh.stats)
+		adminG.PUT("/site/changeStatus", middleware.RequirePerm("site:site:status"), sh.changeStatus)
+		adminG.GET("/domain/list", middleware.RequirePerm("site:domain:list"), sh.listDomains)
+		adminG.POST("/domain/:id/verify", middleware.RequirePerm("site:domain:verify"), sh.verifyDomain)
+	}
 
 	uh := &userHandler{svc: d.Users}
 	merchantG.GET("/role/list", middleware.RequirePerm("merchant:user:list"), uh.roles)

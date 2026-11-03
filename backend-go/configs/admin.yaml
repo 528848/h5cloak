@@ -18,6 +18,9 @@ log:
   level: debug
   format: console
 
+gateway:
+  entry_host: entry.cloak.local
+
 auth:
   # 本地开发密钥，生产环境必须通过 CLOAK_AUTH_JWT_SECRET 覆盖
   jwt_secret: local-dev-secret-change-me

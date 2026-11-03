@@ -72,6 +72,7 @@ type Auth struct {
 
 type Gateway struct {
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
+	EntryHost      string   `mapstructure:"entry_host"`
 }
 
 type Worker struct {
@@ -166,6 +167,7 @@ func setDefaults(v *viper.Viper, service string) {
 	v.SetDefault("auth.lock_after", 5)
 	v.SetDefault("auth.lock_duration", "15m")
 
+	v.SetDefault("gateway.entry_host", "entry.cloak.local")
 	v.SetDefault("worker.concurrency", 8)
 	v.SetDefault("scheduler.lock_key", "scheduler:leader")
 }

@@ -1,38 +1,87 @@
 <template>
   <ele-page flex-table="auto">
-    <ele-card :body-style="{ paddingTop: '8px' }" flex-table="auto">
+    <summary-cards :items="summaryItems" :cols="4" />
+    <ele-card search-form class="page-section">
+      <el-form
+        label-width="72px"
+        @keyup.enter="handleSearch"
+        @submit.prevent=""
+      >
+        <el-row :gutter="12">
+          <el-col :lg="6" :md="8" :sm="12" :xs="24">
+            <el-form-item label="域名">
+              <el-input
+                v-model.trim="form.keyword"
+                clearable
+                placeholder="域名关键字"
+              />
+            </el-form-item>
+          </el-col>
+          <el-col :lg="6" :md="8" :sm="12" :xs="24">
+            <el-form-item label="状态">
+              <el-select
+                v-model="form.status"
+                clearable
+                placeholder="全部"
+                class="ele-fluid"
+              >
+                <el-option
+                  v-for="o in domainStatusOptions"
+                  :key="o.value"
+                  :label="o.label"
+                  :value="o.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :lg="6" :md="8" :sm="12" :xs="24">
+            <el-form-item label-width="0">
+              <btn-items
+                :wrap="false"
+                :items="[
+                  { preset: 'search', onClick: () => handleSearch() },
+                  { preset: 'reset', onClick: () => handleReset() }
+                ]"
+              />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+    </ele-card>
+    <ele-card
+      class="table-section"
+      :body-style="{ paddingTop: '8px' }"
+      flex-table="auto"
+    >
       <ele-pro-table
         ref="tableRef"
         row-key="domainId"
         :columns="columns"
         :datasource="datasource"
         :show-overflow-tooltip="true"
-        :highlight-current-row="true"
-        cache-key="adminDomainTable"
+        cache-key="adminDomainTableV2"
       >
+        <template #domain="{ row }">
+          <span class="mono">{{ row.domain }}</span>
+        </template>
         <template #status="{ row }">
-          <el-tag :type="statusType[row.status] || 'info'">
-            {{ statusText[row.status] || row.status }}
+          <el-tag
+            :type="getOptionType(domainStatusOptions, row.status)"
+            effect="light"
+            size="small"
+          >
+            {{ getOptionLabel(domainStatusOptions, row.status) }}
           </el-tag>
         </template>
         <template #action="{ row }">
-          <btn-items
-            divider
-            type="link"
-            :items="[
-              {
-                title: '强制停用',
-                permission: 'cloak:domain:list',
-                vIf: () => row.status !== 'disabled',
-                onClick: () => handleForceDisable(row)
-              },
-              {
-                preset: 'detail',
-                permission: 'cloak:domain:list',
-                onClick: () => handleDetail(row)
-              }
-            ]"
-          />
+          <el-button
+            v-permission="'site:domain:verify'"
+            link
+            type="primary"
+            @click="handleVerify(row)"
+          >
+            校验
+          </el-button>
         </template>
       </ele-pro-table>
     </ele-card>
@@ -40,85 +89,152 @@
 </template>
 
 <script setup>
-  import { ref } from 'vue';
-  import { ElMessageBox } from 'element-plus';
-  import { EleMessage, useModal } from 'ele-admin-plus';
+  import { ref, computed, onMounted } from 'vue';
+  import { EleMessage } from 'ele-admin-plus';
+  import { useFormData } from '@/utils/use-form-data';
+  import { pageAdminDomains, verifyAdminDomain } from '@/api/admin/domain';
+  import { getAdminSiteStats } from '@/api/admin/site';
   import {
-    pageAdminDomains,
-    updateAdminDomainStatus
-  } from '@/api/admin/domain';
+    domainStatusOptions,
+    domainTypeOptions,
+    getOptionLabel,
+    getOptionType
+  } from '@/views/merchant/site/constants';
 
   defineOptions({ name: 'AdminDomain' });
 
-  const { openModal } = useModal();
   const tableRef = ref(null);
+  const stats = ref({
+    domainTotal: 0,
+    domainBound: 0,
+    domainPending: 0,
+    domainAbnormal: 0
+  });
+  const [form, resetFields] = useFormData({ keyword: '', status: '' });
 
-  const statusText = {
-    pending: '待验证',
-    bound: '已绑定',
-    abnormal: '异常',
-    disabled: '已停用'
-  };
-
-  const statusType = {
-    pending: 'warning',
-    bound: 'success',
-    abnormal: 'danger',
-    disabled: 'info'
-  };
+  const summaryItems = computed(() => [
+    {
+      key: 'total',
+      label: '全部域名',
+      value: stats.value.domainTotal,
+      desc: '全平台已添加的域名',
+      type: 'primary'
+    },
+    {
+      key: 'bound',
+      label: '已绑定',
+      value: stats.value.domainBound,
+      desc: '校验通过',
+      type: 'success'
+    },
+    {
+      key: 'pending',
+      label: '待校验',
+      value: stats.value.domainPending,
+      desc: '尚未完成解析',
+      type: 'warning'
+    },
+    {
+      key: 'abnormal',
+      label: '解析异常',
+      value: stats.value.domainAbnormal,
+      desc: '当前解析与期望不一致',
+      type: 'danger',
+      alert: stats.value.domainAbnormal > 0
+    }
+  ]);
 
   const columns = [
-    { type: 'index', columnKey: 'index', width: 55, align: 'center' },
-    { prop: 'domain', label: '域名', minWidth: 180 },
-    { prop: 'merchantName', label: '所属商户', minWidth: 160 },
-    { prop: 'cloakCount', label: '关联斗篷', width: 110, align: 'center' },
-    { prop: 'status', label: '状态', width: 110, align: 'center', slot: 'status' },
-    { prop: 'lastCheckedAt', label: '最后检测', minWidth: 160, align: 'center' },
-    { columnKey: 'action', label: '操作', width: 170, align: 'center', slot: 'action' }
+    { type: 'index', columnKey: 'index', width: 50, align: 'center' },
+    {
+      prop: 'domain',
+      label: '域名',
+      minWidth: 180,
+      slot: 'domain',
+      formatter: (row) => row.domain
+    },
+    {
+      prop: 'merchantName',
+      label: '所属商户',
+      minWidth: 140,
+      formatter: (row) => row.merchantName || '-'
+    },
+    { prop: 'siteName', label: '所属站点', minWidth: 140 },
+    {
+      prop: 'domainType',
+      label: '类型',
+      width: 100,
+      align: 'center',
+      formatter: (row) => getOptionLabel(domainTypeOptions, row.domainType)
+    },
+    { prop: 'verifyType', label: '校验方式', width: 100, align: 'center' },
+    {
+      prop: 'status',
+      label: '状态',
+      width: 110,
+      align: 'center',
+      slot: 'status',
+      formatter: (row) => getOptionLabel(domainStatusOptions, row.status)
+    },
+    {
+      prop: 'verifyMessage',
+      label: '最近结果',
+      minWidth: 220,
+      formatter: (row) => row.verifyMessage || '-'
+    },
+    {
+      prop: 'lastCheckedAt',
+      label: '最后校验',
+      minWidth: 160,
+      formatter: (row) => row.lastCheckedAt || '-'
+    },
+    {
+      columnKey: 'action',
+      label: '操作',
+      width: 90,
+      align: 'center',
+      slot: 'action',
+      hideInPrint: true,
+      hideInExport: true
+    }
   ];
 
-  const datasource = ({ page, limit, where }) => {
-    return pageAdminDomains({ ...where, pageNum: page, pageSize: limit });
-  };
+  const datasource = ({ page, limit, where }) =>
+    pageAdminDomains({ ...where, pageNum: page, pageSize: limit });
 
-  const reload = () => {
-    tableRef.value?.reload?.();
-  };
-
-  const handleForceDisable = (row) => {
-    ElMessageBox.confirm(
-      `是否确认强制停用域名"${row.domain}"?`,
-      '系统提示',
-      { type: 'warning', draggable: true }
-    )
-      .then(() => {
-        const loading = EleMessage.loading({
-          message: '请求中..',
-          plain: true
-        });
-        updateAdminDomainStatus(row.domainId, 'disabled')
-          .then((msg) => {
-            loading.close();
-            EleMessage.success({ message: msg, plain: true });
-            reload();
-          })
-          .catch((e) => {
-            loading.close();
-            EleMessage.error({ message: e.message, plain: true });
-          });
-      })
+  const loadStats = () => {
+    getAdminSiteStats()
+      .then((data) => (stats.value = data))
       .catch(() => {});
   };
 
-  const handleDetail = (row) => {
-    openModal({
-      custom: true,
-      asyncComponent: () => import('./components/domain-detail.vue'),
-      componentProps: {
-        data: row,
-        statusText,
-        statusType
-      }
-    });
+  const reload = (where, page) => {
+    tableRef.value?.reload?.({ where, page });
+    loadStats();
   };
+
+  const handleSearch = () => reload({ ...form }, 1);
+  const handleReset = () => {
+    resetFields();
+    handleSearch();
+  };
+
+  const handleVerify = (row) => {
+    const loading = EleMessage.loading({ message: '校验中..', plain: true });
+    verifyAdminDomain(row.domainId)
+      .then((res) => {
+        loading.close();
+        EleMessage.success({
+          message: res.data?.verifyMessage || res.msg,
+          plain: true
+        });
+        reload();
+      })
+      .catch((e) => {
+        loading.close();
+        EleMessage.error({ message: e.message, plain: true });
+      });
+  };
+
+  onMounted(loadStats);
 </script>
