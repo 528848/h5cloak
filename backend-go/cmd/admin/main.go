@@ -9,6 +9,7 @@ import (
 
 	"cloak/internal/adapter/mysql"
 	"cloak/internal/adapter/redis"
+	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/bootstrap"
 	"cloak/internal/app/merchantsvc"
@@ -45,17 +46,20 @@ func main() {
 	authSvc := authsvc.New(repo, repo, rbacSvc, tokens, locker, rt.Log)
 	merchantSvc := merchantsvc.New(merchantRepo, repo, repo, tokens)
 	userSvc := usersvc.New(repo, repo, merchantRepo, tokens)
-	siteSvc := sitesvc.New(mysql.NewSiteRepo(db), merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
+	siteRepo := mysql.NewSiteRepo(db)
+	siteSvc := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
+	attrSvc := attrsvc.New(mysql.NewAttributionRepo(db), siteRepo, merchantRepo)
 
 	router := admin.NewRouter(admin.Deps{
 		Cfg: rt.Cfg, Log: rt.Log, Metrics: rt.Metrics,
-		Auth:      authSvc,
-		Merchants: merchantSvc,
-		Users:     userSvc,
-		Sites:     siteSvc,
-		Repo:      merchantRepo,
-		Authn:     middleware.NewAuthenticator(tokens, repo, rbacSvc),
-		OpLog:     middleware.NewOperationLogger(repo, rt.Log),
+		Auth:        authSvc,
+		Merchants:   merchantSvc,
+		Users:       userSvc,
+		Sites:       siteSvc,
+		Attribution: attrSvc,
+		Repo:        merchantRepo,
+		Authn:       middleware.NewAuthenticator(tokens, repo, rbacSvc),
+		OpLog:       middleware.NewOperationLogger(repo, rt.Log),
 		Upload: admin.UploadConfig{
 			Dir:       rt.Cfg.App.UploadDir,
 			PublicURL: rt.Cfg.App.PublicURL,

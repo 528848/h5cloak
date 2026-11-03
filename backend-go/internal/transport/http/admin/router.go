@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/sitesvc"
@@ -28,14 +29,15 @@ type Deps struct {
 	Log     *zap.Logger
 	Metrics *prometheus.Registry
 
-	Auth      *authsvc.Service
-	Merchants *merchantsvc.Service
-	Users     *usersvc.Service
-	Sites     *sitesvc.Service
-	Repo      identity.MerchantRepository
-	Authn     *middleware.Authenticator
-	OpLog     *middleware.OperationLogger
-	Upload    UploadConfig
+	Auth        *authsvc.Service
+	Merchants   *merchantsvc.Service
+	Users       *usersvc.Service
+	Sites       *sitesvc.Service
+	Attribution *attrsvc.Service
+	Repo        identity.MerchantRepository
+	Authn       *middleware.Authenticator
+	OpLog       *middleware.OperationLogger
+	Upload      UploadConfig
 }
 
 // UploadConfig 本地上传目录与对外地址。
@@ -141,6 +143,32 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.PUT("/site/changeStatus", middleware.RequirePerm("site:site:status"), sh.changeStatus)
 		adminG.GET("/domain/list", middleware.RequirePerm("site:domain:list"), sh.listDomains)
 		adminG.POST("/domain/:id/verify", middleware.RequirePerm("site:domain:verify"), sh.verifyDomain)
+	}
+
+	if d.Attribution != nil {
+		xh := &attributionHandler{svc: d.Attribution}
+		merchantG.GET("/attribution/params", middleware.RequirePerm("attribution:rule:list"), xh.params)
+		merchantG.POST("/attribution/params", middleware.RequirePerm("attribution:rule:edit"), xh.saveParam)
+		merchantG.DELETE("/attribution/params/:id", middleware.RequirePerm("attribution:rule:edit"), xh.deleteParam)
+		merchantG.GET("/attribution/rule", middleware.RequirePerm("attribution:rule:list"), xh.rule)
+		merchantG.PUT("/attribution/rule", middleware.RequirePerm("attribution:rule:edit"), xh.saveRule)
+		merchantG.GET("/code/list", middleware.RequirePerm("attribution:code:list"), xh.listCodes)
+		merchantG.GET("/code/stats", middleware.RequirePerm("attribution:code:list"), xh.codeStats)
+		merchantG.GET("/code/channels", middleware.RequirePerm("attribution:code:list"), xh.channels)
+		merchantG.GET("/code/export", middleware.RequirePerm("attribution:code:export"), xh.exportCodes)
+		merchantG.POST("/code", middleware.RequirePerm("attribution:code:add"), xh.createCode)
+		merchantG.POST("/code/generate", middleware.RequirePerm("attribution:code:add"), xh.generateCodes)
+		merchantG.POST("/code/import", middleware.RequirePerm("attribution:code:add"), xh.importCodes)
+		merchantG.PUT("/code/changeStatus", middleware.RequirePerm("attribution:code:status"), xh.changeCodesStatus)
+		merchantG.POST("/code/remove", middleware.RequirePerm("attribution:code:remove"), xh.deleteCodes)
+		merchantG.PUT("/code/:id", middleware.RequirePerm("attribution:code:edit"), xh.updateCode)
+		merchantG.GET("/link/options", middleware.RequirePerm("attribution:link:build"), xh.linkOptions)
+		merchantG.POST("/link/build", middleware.RequirePerm("attribution:link:build"), xh.buildLink)
+
+		adminG.GET("/param/list", middleware.RequirePerm("attribution:param:list"), xh.builtins)
+		adminG.POST("/param", middleware.RequirePerm("attribution:param:edit"), xh.createBuiltin)
+		adminG.PUT("/param/:id", middleware.RequirePerm("attribution:param:edit"), xh.updateBuiltin)
+		adminG.DELETE("/param/:id", middleware.RequirePerm("attribution:param:edit"), xh.deleteBuiltin)
 	}
 
 	uh := &userHandler{svc: d.Users}
