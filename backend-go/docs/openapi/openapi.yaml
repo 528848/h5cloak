@@ -1,0 +1,59 @@
+openapi: 3.1.0
+info:
+  title: 斗篷系统 V2 API
+  version: 2.0.0-dev
+  description: |
+    管理 API 沿用若依协议：成功 `{code:200,msg,data}`，分页 `{code:200,msg,rows,total}`。
+    开放 API v2 使用 HMAC 签名，见 docs/v2/technical-design-v2.md 第 8 章。
+servers:
+  - url: http://127.0.0.1:8080/api
+    description: 本地管理 API
+  - url: http://127.0.0.1:8090/api
+    description: 本地网关开放接口
+tags:
+  - name: system
+  - name: auth
+  - name: admin
+  - name: merchant
+  - name: open
+paths:
+  /version:
+    get:
+      tags: [system]
+      summary: 服务版本
+      responses:
+        "200":
+          description: 版本信息
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Success"
+components:
+  schemas:
+    Success:
+      type: object
+      properties:
+        code: { type: integer, example: 200 }
+        msg: { type: string, example: 操作成功 }
+        data: {}
+    Page:
+      type: object
+      properties:
+        code: { type: integer, example: 200 }
+        msg: { type: string, example: 查询成功 }
+        rows: { type: array, items: {} }
+        total: { type: integer }
+    Error:
+      type: object
+      properties:
+        code: { type: integer }
+        msg: { type: string }
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    cloakHmac:
+      type: apiKey
+      in: header
+      name: X-Cloak-Signature

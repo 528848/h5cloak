@@ -1,0 +1,71 @@
+<!-- eslint-disable vue/no-v-html -->
+<template>
+  <div class="ele-message-icon">
+    <ElIcon :class="{ 'is-loading': loading }">
+      <component v-if="icon" :is="icon" />
+      <LoadingOutlined v-else-if="loading" />
+      <CheckCircleFilled v-else-if="type === 'success'" />
+      <ExclamationCircleFilled v-else-if="type === 'warning'" />
+      <CloseCircleFilled v-else-if="type === 'error'" />
+      <InfoCircleFilled v-else />
+    </ElIcon>
+  </div>
+  <slot>
+    <div
+      v-if="dangerouslyUseHTMLString"
+      v-html="message"
+      class="ele-message-content"
+    ></div>
+    <div v-else class="ele-message-content">{{ message }}</div>
+  </slot>
+  <div v-if="showClose" class="ele-message-close" @click="handleClose">
+    <ElIcon>
+      <CloseOutlined />
+    </ElIcon>
+  </div>
+</template>
+
+<script setup>
+  import { onBeforeUnmount } from 'vue';
+  import { ElIcon } from 'element-plus';
+  import {
+    CloseOutlined,
+    InfoCircleFilled,
+    CheckCircleFilled,
+    ExclamationCircleFilled,
+    CloseCircleFilled,
+    LoadingOutlined
+  } from '../../icons/index';
+
+  defineOptions({ name: 'MessageBody' });
+
+  const props = defineProps({
+    /** 内容 */
+    message: String,
+    /** 类型 */
+    type: String,
+    /** 图标 */
+    icon: [String, Object, Function],
+    /** 是否显示关闭按钮 */
+    showClose: Boolean,
+    /** 内容是否是富文本 */
+    dangerouslyUseHTMLString: Boolean,
+    /** 是否是加载框 */
+    loading: Boolean,
+    /** 标识id */
+    messageId: String
+  });
+
+  const emit = defineEmits({
+    close: () => true,
+    messageDestroy: (_messageId) => true
+  });
+
+  onBeforeUnmount(() => {
+    emit('messageDestroy', props.messageId);
+  });
+
+  const handleClose = () => {
+    emit('close');
+  };
+</script>

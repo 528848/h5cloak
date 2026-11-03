@@ -1,0 +1,26 @@
+app:
+  name: cloak-gateway
+  env: local
+  node_name: local-gw-1
+
+http:
+  addr: 127.0.0.1:8090
+  metrics_addr: 127.0.0.1:9090
+  # 代理长连接与大文件需要更宽松的超时，后续按站点配置覆盖
+  read_timeout: 60s
+  write_timeout: 0s
+  idle_timeout: 120s
+
+mysql:
+  dsn: cloak:cloak@tcp(127.0.0.1:3307)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
+
+redis:
+  addr: 127.0.0.1:6380
+
+log:
+  level: debug
+  format: console
+
+gateway:
+  trusted_proxies:
+    - 127.0.0.1/32

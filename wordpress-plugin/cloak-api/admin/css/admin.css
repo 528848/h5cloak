@@ -1,0 +1,47 @@
+.cloak-api-wrap .cloak-api-card {
+  max-width: 920px;
+  margin-top: 18px;
+  padding: 16px 20px 8px;
+  background: #fff;
+  border: 1px solid #dcdcde;
+  border-radius: 8px;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.cloak-api-wrap .cloak-api-card h2 {
+  margin: 0 0 12px;
+  padding: 0;
+  font-size: 16px;
+}
+
+.cloak-api-wrap .cloak-api-card--notice {
+  background: #f6f7f7;
+}
+
+.cloak-api-wrap .cloak-api-tips {
+  margin: 0 0 8px 18px;
+  line-height: 1.7;
+}
+
+.cloak-api-wrap .cloak-mode-field,
+.cloak-api-wrap .cloak-real-mode-field {
+  display: none;
+}
+
+.cloak-api-wrap .cloak-mode-field.is-active,
+.cloak-api-wrap .cloak-real-mode-field.is-active {
+  display: table-row;
+}
+
+#cloak-api-test-result {
+  margin-left: 8px;
+  font-weight: 600;
+}
+
+#cloak-api-test-result.is-success {
+  color: #008a20;
+}
+
+#cloak-api-test-result.is-error {
+  color: #b32d2e;
+}

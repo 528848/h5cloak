@@ -1,0 +1,19 @@
+app:
+  name: cloak-worker
+  env: local
+
+http:
+  metrics_addr: 127.0.0.1:9091
+
+mysql:
+  dsn: cloak:cloak@tcp(127.0.0.1:3307)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
+
+redis:
+  addr: 127.0.0.1:6380
+
+log:
+  level: debug
+  format: console
+
+worker:
+  concurrency: 8

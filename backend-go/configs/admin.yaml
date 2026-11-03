@@ -1,0 +1,24 @@
+app:
+  name: cloak-admin
+  env: local
+  node_name: local-1
+  timezone: Asia/Shanghai
+
+http:
+  addr: 127.0.0.1:8080
+  metrics_addr: 127.0.0.1:9080
+
+mysql:
+  dsn: cloak:cloak@tcp(127.0.0.1:3307)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
+
+redis:
+  addr: 127.0.0.1:6380
+
+log:
+  level: debug
+  format: console
+
+auth:
+  # 本地开发密钥，生产环境必须通过 CLOAK_AUTH_JWT_SECRET 覆盖
+  jwt_secret: local-dev-secret-change-me
+  token_ttl: 2h
