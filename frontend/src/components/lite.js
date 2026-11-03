@@ -11,4 +11,6 @@ export { default as RedirectLayout } from './RedirectLayout/index.vue';
 export { default as RegionsSelect } from './RegionsSelect/index.vue';
 export { default as RoleSelect } from './RoleSelect/index.vue';
 export { default as RouterLayout } from './RouterLayout/index.vue';
+export { default as SectionCard } from './SectionCard/index.vue';
+export { default as SummaryCards } from './SummaryCards/index.vue';
 export { default as UserSelect } from './UserSelect/index.vue';

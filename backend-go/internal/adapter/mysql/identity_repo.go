@@ -44,6 +44,107 @@ func (r *IdentityRepo) Update(ctx context.Context, user *identity.User, fields .
 	return q.Updates(user).Error
 }
 
+func (r *IdentityRepo) Create(ctx context.Context, user *identity.User, roleIDs []uint64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit("Roles", "Merchant").Create(user).Error; err != nil {
+			return err
+		}
+		return setRoles(tx, user.ID, roleIDs)
+	})
+}
+
+func (r *IdentityRepo) Delete(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&identity.User{}, id).Error
+}
+
+func (r *IdentityRepo) SetRoles(ctx context.Context, userID uint64, roleIDs []uint64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return setRoles(tx, userID, roleIDs)
+	})
+}
+
+func setRoles(tx *gorm.DB, userID uint64, roleIDs []uint64) error {
+	if err := tx.Exec("DELETE FROM user_roles WHERE user_id = ?", userID).Error; err != nil {
+		return err
+	}
+	for _, rid := range roleIDs {
+		if err := tx.Exec("INSERT IGNORE INTO user_roles (user_id, role_id) VALUES (?, ?)", userID, rid).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *IdentityRepo) UsernameExists(ctx context.Context, username string, excludeID uint64) (bool, error) {
+	var n int64
+	q := r.db.WithContext(ctx).Model(&identity.User{}).Where("username = ?", username)
+	if excludeID > 0 {
+		q = q.Where("id <> ?", excludeID)
+	}
+	err := q.Count(&n).Error
+	return n > 0, err
+}
+
+func (r *IdentityRepo) ListByMerchant(ctx context.Context, merchantID uint64, f identity.UserFilter) ([]identity.User, int64, error) {
+	q := r.db.WithContext(ctx).Model(&identity.User{}).Where("users.merchant_id = ?", merchantID)
+	if f.Keyword != "" {
+		like := "%" + escapeLike(f.Keyword) + "%"
+		q = q.Where("users.username LIKE ? OR users.nickname LIKE ?", like, like)
+	}
+	if f.Status != "" {
+		q = q.Where("users.status = ?", f.Status)
+	}
+	if f.RoleKey != "" {
+		q = q.Where("EXISTS (SELECT 1 FROM user_roles ur JOIN roles ro ON ro.id = ur.role_id WHERE ur.user_id = users.id AND ro.role_key = ?)", f.RoleKey)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []identity.User
+	err := q.Preload("Roles").Order("users.id DESC").Offset(offset(f.Page, f.Size)).Limit(limit(f.Size)).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *IdentityRepo) CountByMerchant(ctx context.Context, merchantID uint64) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&identity.User{}).Where("merchant_id = ?", merchantID).Count(&n).Error
+	return n, err
+}
+
+func (r *IdentityRepo) FindMerchantAdmin(ctx context.Context, merchantID uint64) (*identity.User, error) {
+	var u identity.User
+	err := r.db.WithContext(ctx).
+		Joins("JOIN user_roles ur ON ur.user_id = users.id").
+		Joins("JOIN roles ro ON ro.id = ur.role_id AND ro.role_key = ?", identity.RoleMerchantAdmin).
+		Where("users.merchant_id = ?", merchantID).
+		Order("users.id ASC").
+		First(&u).Error
+	return wrap(&u, err)
+}
+
+// ListByScope 角色列表。
+func (r *IdentityRepo) ListByScope(ctx context.Context, scope string) ([]identity.Role, error) {
+	var roles []identity.Role
+	err := r.db.WithContext(ctx).Where("scope = ? AND status = ?", scope, identity.StatusEnabled).Order("sort ASC").Find(&roles).Error
+	return roles, err
+}
+
+func (r *IdentityRepo) FindByKeys(ctx context.Context, keys []string) ([]identity.Role, error) {
+	var roles []identity.Role
+	err := r.db.WithContext(ctx).Where("role_key IN ?", keys).Find(&roles).Error
+	return roles, err
+}
+
+func (r *IdentityRepo) FindByIDs(ctx context.Context, ids []uint64) ([]identity.Role, error) {
+	var roles []identity.Role
+	if len(ids) == 0 {
+		return roles, nil
+	}
+	err := r.db.WithContext(ctx).Where("id IN ?", ids).Find(&roles).Error
+	return roles, err
+}
+
 func (r *IdentityRepo) ListByRoles(ctx context.Context, roleIDs []uint64, portal string) ([]identity.Menu, error) {
 	if len(roleIDs) == 0 {
 		return nil, nil

@@ -9,6 +9,8 @@ import (
 	"go.uber.org/zap"
 
 	"cloak/internal/app/authsvc"
+	"cloak/internal/app/merchantsvc"
+	"cloak/internal/app/usersvc"
 	"cloak/internal/config"
 	"cloak/internal/domain/identity"
 	"cloak/internal/pkg/version"
@@ -25,10 +27,13 @@ type Deps struct {
 	Log     *zap.Logger
 	Metrics *prometheus.Registry
 
-	Auth   *authsvc.Service
-	Authn  *middleware.Authenticator
-	OpLog  *middleware.OperationLogger
-	Upload UploadConfig
+	Auth      *authsvc.Service
+	Merchants *merchantsvc.Service
+	Users     *usersvc.Service
+	Repo      identity.MerchantRepository
+	Authn     *middleware.Authenticator
+	OpLog     *middleware.OperationLogger
+	Upload    UploadConfig
 }
 
 // UploadConfig 本地上传目录与对外地址。
@@ -88,9 +93,31 @@ func NewRouter(d Deps) *gin.Engine {
 	system.POST("/user/profile/avatar", ph.avatar)
 	system.GET("/dict/data/type/:type", dictByType)
 
-	// 门户分组：后续迭代在这里挂业务路由
-	_ = authed.Group("/admin", middleware.RequirePortal(identity.PortalAdmin))
-	_ = authed.Group("/merchant", middleware.RequirePortal(identity.PortalMerchant))
+	adminG := authed.Group("/admin", middleware.RequirePortal(identity.PortalAdmin))
+	merchantG := authed.Group("/merchant", middleware.RequirePortal(identity.PortalMerchant))
+
+	dh := &dashboardHandler{merchants: d.Merchants, repo: d.Repo}
+	adminG.GET("/dashboard", middleware.RequirePerm("admin:dashboard:view"), dh.admin)
+	merchantG.GET("/dashboard", middleware.RequirePerm("merchant:dashboard:view"), dh.merchant)
+
+	mh := &merchantHandler{svc: d.Merchants}
+	adminG.GET("/merchant/list", middleware.RequirePerm("merchant:account:list"), mh.list)
+	adminG.GET("/merchant/stats", middleware.RequirePerm("merchant:account:list"), mh.stats)
+	adminG.POST("/merchant", middleware.RequirePerm("merchant:account:add"), mh.create)
+	adminG.PUT("/merchant/changeStatus", middleware.RequirePerm("merchant:account:status"), mh.changeStatus)
+	adminG.GET("/merchant/:id", middleware.RequirePerm("merchant:account:list"), mh.get)
+	adminG.PUT("/merchant/:id", middleware.RequirePerm("merchant:account:edit"), mh.update)
+	adminG.PUT("/merchant/:id/quota", middleware.RequirePerm("merchant:account:quota"), mh.updateQuota)
+	adminG.PUT("/merchant/:id/resetPwd", middleware.RequirePerm("merchant:account:resetPwd"), mh.resetPwd)
+
+	uh := &userHandler{svc: d.Users}
+	merchantG.GET("/role/list", middleware.RequirePerm("merchant:user:list"), uh.roles)
+	merchantG.GET("/user/list", middleware.RequirePerm("merchant:user:list"), uh.list)
+	merchantG.POST("/user", middleware.RequirePerm("merchant:user:add"), uh.create)
+	merchantG.PUT("/user/changeStatus", middleware.RequirePerm("merchant:user:status"), uh.changeStatus)
+	merchantG.PUT("/user/:id", middleware.RequirePerm("merchant:user:edit"), uh.update)
+	merchantG.PUT("/user/:id/resetPwd", middleware.RequirePerm("merchant:user:resetPwd"), uh.resetPwd)
+	merchantG.DELETE("/user/:id", middleware.RequirePerm("merchant:user:remove"), uh.remove)
 
 	return r
 }

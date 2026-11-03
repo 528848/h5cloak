@@ -99,6 +99,7 @@ func menuDefs() []menuDef {
 		{Key: "a.merchant.edit", Parent: "a.merchant", Portal: admin, Name: "商户编辑", Type: "F", Perms: "merchant:account:edit", Roles: ops},
 		{Key: "a.merchant.status", Parent: "a.merchant", Portal: admin, Name: "商户状态", Type: "F", Perms: "merchant:account:status", Roles: ops},
 		{Key: "a.merchant.resetPwd", Parent: "a.merchant", Portal: admin, Name: "重置管理员密码", Type: "F", Perms: "merchant:account:resetPwd", Roles: ops},
+		{Key: "a.merchant.quota", Parent: "a.merchant", Portal: admin, Name: "额度与功能", Type: "F", Perms: "merchant:account:quota", Roles: ops},
 		{Key: "a.domain", Portal: admin, Name: "全部域名", Path: "/admin/domain", Component: "admin/domain", Type: "C", Perms: "site:domain:list", Icon: "tree", Sort: 30, Visible: true, Roles: ops},
 		{Key: "a.cloak", Portal: admin, Name: "全部斗篷", Path: "/admin/cloak", Component: "admin/cloak", Type: "C", Perms: "cloak:strategy:list", Icon: "system", Sort: 40, Visible: true, Roles: ops},
 		{Key: "a.cloakLog", Portal: admin, Name: "斗篷日志", Path: "/admin/cloak-log", Component: "admin/cloak-log", Type: "C", Perms: "cloak:log:list", Icon: "log", Sort: 50, Visible: true, Roles: ops},
@@ -125,6 +126,12 @@ func menuDefs() []menuDef {
 		{Key: "m.apiKey.reset", Parent: "m.apiKey", Portal: merchant, Name: "Key重置", Type: "F", Perms: "cloak:apiKey:reset", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.apiKey.remove", Parent: "m.apiKey", Portal: merchant, Name: "Key删除", Type: "F", Perms: "cloak:apiKey:remove", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.apiLog", Portal: merchant, Name: "API 调用日志", Path: "/merchant/api-log", Component: "merchant/api-log", Type: "C", Perms: "cloak:apiLog:list", Icon: "log", Sort: 170, Visible: true, Roles: allMerchant},
+		{Key: "m.user", Portal: merchant, Name: "账号管理", Path: "/merchant/user", Component: "merchant/user", Type: "C", Perms: "merchant:user:list", Icon: "user", Sort: 900, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.user.add", Parent: "m.user", Portal: merchant, Name: "账号新增", Type: "F", Perms: "merchant:user:add", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.user.edit", Parent: "m.user", Portal: merchant, Name: "账号编辑", Type: "F", Perms: "merchant:user:edit", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.user.status", Parent: "m.user", Portal: merchant, Name: "账号状态", Type: "F", Perms: "merchant:user:status", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.user.resetPwd", Parent: "m.user", Portal: merchant, Name: "重置密码", Type: "F", Perms: "merchant:user:resetPwd", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.user.remove", Parent: "m.user", Portal: merchant, Name: "账号删除", Type: "F", Perms: "merchant:user:remove", Roles: []string{identity.RoleMerchantAdmin}},
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"cloak/internal/adapter/redis"
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/bootstrap"
+	"cloak/internal/app/merchantsvc"
+	"cloak/internal/app/usersvc"
 	"cloak/internal/auth"
 	"cloak/internal/pkg/httpserver"
 	"cloak/internal/rbac"
@@ -35,16 +37,22 @@ func main() {
 	}
 
 	repo := mysql.NewIdentityRepo(db)
+	merchantRepo := mysql.NewMerchantRepo(db)
 	rbacSvc := rbac.New(repo)
 	tokens := auth.NewTokenManager(rt.Cfg.Auth.JWTSecret, rt.Cfg.Auth.TokenTTL, rdb)
 	locker := auth.NewLoginLocker(rdb, rt.Cfg.Auth.LockAfter, rt.Cfg.Auth.LockDuration)
 	authSvc := authsvc.New(repo, repo, rbacSvc, tokens, locker, rt.Log)
+	merchantSvc := merchantsvc.New(merchantRepo, repo, repo, tokens)
+	userSvc := usersvc.New(repo, repo, merchantRepo, tokens)
 
 	router := admin.NewRouter(admin.Deps{
 		Cfg: rt.Cfg, Log: rt.Log, Metrics: rt.Metrics,
-		Auth:  authSvc,
-		Authn: middleware.NewAuthenticator(tokens, repo, rbacSvc),
-		OpLog: middleware.NewOperationLogger(repo, rt.Log),
+		Auth:      authSvc,
+		Merchants: merchantSvc,
+		Users:     userSvc,
+		Repo:      merchantRepo,
+		Authn:     middleware.NewAuthenticator(tokens, repo, rbacSvc),
+		OpLog:     middleware.NewOperationLogger(repo, rt.Log),
 		Upload: admin.UploadConfig{
 			Dir:       rt.Cfg.App.UploadDir,
 			PublicURL: rt.Cfg.App.PublicURL,

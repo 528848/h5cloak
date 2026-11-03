@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -50,6 +51,11 @@ func (a *Authenticator) Required() gin.HandlerFunc {
 		}
 		if user.Portal() != claims.Portal {
 			response.Error(c, http.StatusForbidden, "账号门户不匹配")
+			return
+		}
+		// 商户被停用、冻结或到期后，已登录会话也不能继续操作
+		if user.MerchantID != nil && (user.Merchant == nil || !user.Merchant.Active(time.Now())) {
+			response.Error(c, http.StatusUnauthorized, "商户已停用或已到期，请联系平台")
 			return
 		}
 		perms, err := a.rbac.Permissions(c.Request.Context(), user)

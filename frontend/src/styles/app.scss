@@ -1,0 +1,301 @@
+/**
+ * 业务页面全局工具类，对应 docs/前端UI规范.md。
+ * 间距三档：页面分段 16px、卡片内分组 12px、行内 6–8px。颜色只用 Element 变量。
+ */
+:root {
+  --app-page-section-gap: 16px;
+}
+
+/* 页面分段：相邻顶层块之间的间距；最后一个表格卡片用 table-section 取消下边距 */
+.page-section {
+  margin-bottom: var(--app-page-section-gap);
+}
+
+.table-section {
+  margin-bottom: 0;
+}
+
+/* 分区卡片：标题 + 副标题，无下边线 */
+.app-section-card {
+  > .ele-card-header,
+  > .el-card__header {
+    padding: 14px 18px 12px;
+    border-bottom: none;
+  }
+}
+
+.app-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  line-height: 1.4;
+
+  &::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 16px;
+    border-radius: 2px;
+    background: var(--el-color-primary);
+    align-self: center;
+    flex-shrink: 0;
+  }
+
+  > span {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--el-text-color-primary);
+  }
+
+  > em {
+    font-style: normal;
+    font-size: 12px;
+    color: var(--el-text-color-placeholder);
+  }
+}
+
+/* 概览卡片 */
+.summary-card {
+  --summary-color: var(--el-color-primary);
+  position: relative;
+  overflow: hidden;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+
+  &::after {
+    content: '';
+    position: absolute;
+    right: -24px;
+    bottom: -28px;
+    width: 88px;
+    height: 88px;
+    border-radius: 50%;
+    background: var(--summary-color);
+    opacity: 0.06;
+    pointer-events: none;
+  }
+
+  &.is-success {
+    --summary-color: var(--el-color-success);
+  }
+  &.is-warning {
+    --summary-color: var(--el-color-warning);
+  }
+  &.is-danger {
+    --summary-color: var(--el-color-danger);
+  }
+  &.is-info {
+    --summary-color: var(--el-color-info);
+  }
+
+  &.is-warning,
+  &.is-danger {
+    background: color-mix(in srgb, var(--summary-color) 8%, var(--el-bg-color));
+    border-color: color-mix(in srgb, var(--summary-color) 30%, transparent);
+
+    .summary-label,
+    .summary-value {
+      color: var(--summary-color);
+    }
+
+    &::after {
+      opacity: 0.12;
+    }
+  }
+
+  &.is-alert {
+    border-color: var(--summary-color);
+  }
+
+  &.is-clickable {
+    cursor: pointer;
+
+    &:hover,
+    &.is-active {
+      border-color: var(--el-color-primary);
+      box-shadow: var(--el-box-shadow-light);
+    }
+  }
+
+  .summary-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .summary-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--summary-color);
+    flex-shrink: 0;
+  }
+
+  .summary-label {
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .summary-value {
+    margin-top: 6px;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--el-text-color-primary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .summary-desc {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+.summary-row {
+  row-gap: 16px;
+}
+
+/* 详情 Hero */
+.detail-hero {
+  .hero-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .hero-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    > h3 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--el-text-color-primary);
+    }
+  }
+
+  .hero-desc {
+    margin-top: 6px;
+    font-size: 13px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .summary-strip {
+    display: grid;
+    grid-template-columns: 1.2fr repeat(auto-fit, minmax(0, 1fr));
+    margin-top: 16px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    background: linear-gradient(
+      180deg,
+      var(--el-fill-color-extra-light),
+      var(--el-bg-color)
+    );
+    overflow: hidden;
+  }
+
+  .summary-item {
+    padding: 12px 16px;
+    border-left: 1px solid var(--el-border-color-lighter);
+    min-width: 0;
+
+    &:first-child {
+      border-left: none;
+    }
+
+    > span {
+      display: block;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+    }
+
+    > strong {
+      display: block;
+      margin-top: 4px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--el-text-color-primary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    &.is-amount > strong {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--el-color-primary);
+    }
+  }
+
+  @media screen and (max-width: 991.99px) {
+    .summary-strip {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .summary-item {
+      border-left: none;
+      border-top: 1px solid var(--el-border-color-lighter);
+
+      &:nth-child(-n + 2) {
+        border-top: none;
+      }
+    }
+  }
+}
+
+/* 键值表 */
+.detail-table {
+  .el-descriptions__label {
+    width: 110px;
+    font-weight: normal;
+  }
+}
+
+/* 右侧窄栏键值 */
+.side-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--el-border-color-lighter);
+  font-size: 13px;
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  > span:first-child {
+    color: var(--el-text-color-secondary);
+    flex-shrink: 0;
+  }
+}
+
+/* 技术字段 */
+.mono {
+  font-family: Consolas, Monaco, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+.muted-text {
+  color: var(--el-text-color-secondary);
+}
+
+.error-text {
+  color: var(--el-color-danger);
+}
+
+/* 搜索卡片统一间距 */
+.ele-card.search-form .el-form-item {
+  margin-bottom: 14px;
+}
