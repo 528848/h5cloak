@@ -1,16 +1,21 @@
-# 测试服务器网关配置。敏感项用 /opt/cloak/env/gateway.env 覆盖：
-#   CLOAK_REDIS_ADDR, CLOAK_REDIS_PASSWORD, CLOAK_GATEWAY_TLS_EMAIL
+# 判定网关。HTTP 监听在本机 8090，由 Nginx 在 80 端口按 Host 转发；HTTPS 由网关自己在 443 监听并按需签发证书。
+# 覆盖项：CLOAK_MYSQL_DSN  CLOAK_REDIS_ADDR  CLOAK_REDIS_PASSWORD  CLOAK_AUTH_JWT_SECRET  CLOAK_AUTH_SECRET_KEY
+#        CLOAK_GATEWAY_TLS_EMAIL  CLOAK_GATEWAY_TLS_STAGING  CLOAK_GATEWAY_TLS_MODE
 app:
   name: cloak-gateway
-  env: test
-  node_name: test-gw-1
+  env: production
+  node_name: gw-1
+  timezone: Asia/Shanghai
 
 http:
-  addr: :80
+  addr: 127.0.0.1:8090
   metrics_addr: 127.0.0.1:9090
   read_timeout: 60s
   write_timeout: 0s
   idle_timeout: 120s
+
+mysql:
+  dsn: cloak:CHANGE_ME@tcp(127.0.0.1:3306)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
 
 redis:
   addr: 127.0.0.1:6379
@@ -19,20 +24,27 @@ log:
   level: info
   format: json
 
+auth:
+  jwt_secret: CHANGE_ME
+  secret_key: CHANGE_ME
+
 gateway:
   trusted_proxies:
     - 127.0.0.1/32
-    # 前置 Cloudflare 时加入其 IP 段
+    # 前置 Cloudflare 或其它 CDN 时加入其回源 IP 段
   proxy:
     max_body_bytes: 33554432
     dial_timeout: 5s
     idle_conn_timeout: 90s
     max_idle_per_host: 64
     review_noindex: true
+    insecure_origins: false
   tls:
     mode: acme
     addr: :443
-    cert_dir: /opt/cloak/.local/certs
-    email: ops@example.com      # 改成真实邮箱，或用 CLOAK_GATEWAY_TLS_EMAIL
-    staging: true               # 先 staging 验证流程，再改 false
-    redirect_to: true
+    cert_dir: /opt/cloak/data/certs
+    email: ops@example.com
+    staging: true
+    redirect_to: false
+  log_wal_dir: /opt/cloak/data/wal
+  geoip_path: /opt/cloak/data/GeoLite2-Country.mmdb

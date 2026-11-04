@@ -1,6 +1,6 @@
 [Unit]
 Description=Cloak Admin API
-After=network-online.target mysql.service redis.service
+After=network-online.target mysql.service redis-server.service
 Wants=network-online.target
 
 [Service]
@@ -15,8 +15,9 @@ LimitNOFILE=65536
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/cloak/.local /opt/cloak/uploads
+ReadWritePaths=/opt/cloak/data
 PrivateTmp=true
+EnvironmentFile=-/opt/cloak/env/common.env
 EnvironmentFile=-/opt/cloak/env/admin.env
 
 [Install]

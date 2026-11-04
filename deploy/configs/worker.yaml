@@ -1,0 +1,42 @@
+# 异步任务：日志入库、聚合、告警、Webhook 投递、导出、保留期清理、源站巡检。
+# 覆盖项：CLOAK_MYSQL_DSN  CLOAK_REDIS_ADDR  CLOAK_REDIS_PASSWORD  CLOAK_NOTIFY_CONSOLE_URL
+#        CLOAK_NOTIFY_SMTP_HOST / PORT / USERNAME / PASSWORD / FROM  CLOAK_NOTIFY_TELEGRAM_BOT_TOKEN
+app:
+  name: cloak-worker
+  env: production
+  node_name: worker-1
+  timezone: Asia/Shanghai
+  upload_dir: /opt/cloak/data/uploads
+
+http:
+  metrics_addr: 127.0.0.1:9091
+
+mysql:
+  dsn: cloak:CHANGE_ME@tcp(127.0.0.1:3306)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
+
+redis:
+  addr: 127.0.0.1:6379
+
+log:
+  level: info
+  format: json
+
+worker:
+  concurrency: 8
+  export_dir: /opt/cloak/data/exports
+
+notify:
+  console_url: http://merchant.example.com
+  smtp:
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
+    starttls: true
+  telegram:
+    bot_token: ""
+  webhook:
+    timeout: 10s
+    max_attempts: 5
+    allow_http: false

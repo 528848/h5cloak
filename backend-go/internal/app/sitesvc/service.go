@@ -709,8 +709,14 @@ func (s *Service) VerifyDomain(ctx context.Context, merchantID, id uint64, platf
 			ok = true
 			msg = "CNAME 指向 " + cname
 		} else if cname == "" || cname == d.Domain {
+			// 没有 CNAME 时，A 记录直接指到托管入口的 IP 也算绑定成功
 			if ips, ierr := net.DefaultResolver.LookupHost(ctx, d.Domain); ierr == nil && len(ips) > 0 {
-				msg = "该域名当前解析到 " + strings.Join(ips, ", ") + "，未配置指向 " + d.VerifyValue + " 的 CNAME"
+				if hit := sameEntryIP(ctx, ips, s.entryHost); hit != "" {
+					ok = true
+					msg = "A 记录指向托管入口 " + hit
+				} else {
+					msg = "该域名当前解析到 " + strings.Join(ips, ", ") + "，未配置指向 " + d.VerifyValue + " 的 CNAME"
+				}
 			} else {
 				msg = "未配置 CNAME，且域名无法解析"
 			}
@@ -733,6 +739,24 @@ func (s *Service) VerifyDomain(ctx context.Context, merchantID, id uint64, platf
 	}
 	s.notify(d.SiteID)
 	return domainRow(d, msg), nil
+}
+
+// sameEntryIP 域名解析出的地址与托管入口的地址有交集时返回该地址。
+func sameEntryIP(ctx context.Context, ips []string, entryHost string) string {
+	entryIPs, err := net.DefaultResolver.LookupHost(ctx, entryHost)
+	if err != nil || len(entryIPs) == 0 {
+		return ""
+	}
+	set := map[string]bool{}
+	for _, ip := range entryIPs {
+		set[ip] = true
+	}
+	for _, ip := range ips {
+		if set[ip] {
+			return ip
+		}
+	}
+	return ""
 }
 
 func (s *Service) DeleteDomain(ctx context.Context, merchantID, id uint64) error {

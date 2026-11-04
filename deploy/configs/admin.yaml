@@ -1,11 +1,15 @@
-# 测试服务器管理 API 配置。敏感项用 /opt/cloak/env/admin.env 覆盖：
-#   CLOAK_MYSQL_DSN, CLOAK_REDIS_ADDR, CLOAK_AUTH_JWT_SECRET, CLOAK_APP_PUBLIC_URL
+# 管理 API（总后台 + 商户端后端）。
+# 敏感项与环境相关项由 /opt/cloak/env/common.env、admin.env 覆盖（CLOAK_<SECTION>_<KEY>）：
+#   CLOAK_MYSQL_DSN  CLOAK_REDIS_ADDR  CLOAK_REDIS_PASSWORD
+#   CLOAK_AUTH_JWT_SECRET  CLOAK_AUTH_SECRET_KEY
+#   CLOAK_APP_PUBLIC_URL  CLOAK_NOTIFY_CONSOLE_URL  CLOAK_GATEWAY_ENTRY_HOST
 app:
   name: cloak-admin
-  env: test
-  node_name: test-admin-1
-  public_url: https://admin.example.com
-  upload_dir: /opt/cloak/uploads
+  env: production
+  node_name: admin-1
+  timezone: Asia/Shanghai
+  public_url: http://admin.example.com
+  upload_dir: /opt/cloak/data/uploads
 
 http:
   addr: 127.0.0.1:8080
@@ -13,6 +17,8 @@ http:
 
 mysql:
   dsn: cloak:CHANGE_ME@tcp(127.0.0.1:3306)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
+  max_open_conns: 50
+  max_idle_conns: 10
 
 redis:
   addr: 127.0.0.1:6379
@@ -22,7 +28,19 @@ log:
   format: json
 
 auth:
-  jwt_secret: CHANGE_ME_TO_A_LONG_RANDOM_STRING
+  jwt_secret: CHANGE_ME
+  secret_key: CHANGE_ME
+  token_ttl: 2h
+  lock_after: 5
+  lock_duration: 15m
 
 gateway:
   entry_host: entry.example.com
+
+worker:
+  export_dir: /opt/cloak/data/exports
+
+notify:
+  console_url: http://merchant.example.com
+  webhook:
+    allow_http: false

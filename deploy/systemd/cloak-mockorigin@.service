@@ -1,0 +1,22 @@
+# 演示源站，仅测试环境使用：cloak-mockorigin@real（9101）、cloak-mockorigin@review（9102）
+[Unit]
+Description=Cloak demo origin (%i)
+After=network-online.target
+
+[Service]
+Type=simple
+User=cloak
+Group=cloak
+WorkingDirectory=/opt/cloak
+Environment=MOCK_ADDR_real=127.0.0.1:9101
+Environment=MOCK_ADDR_review=127.0.0.1:9102
+ExecStart=/bin/sh -c 'exec /opt/cloak/bin/mockorigin -kind %i -addr "$MOCK_ADDR_%i"'
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

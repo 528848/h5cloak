@@ -1,0 +1,6 @@
+[Unit]
+Description=Cloak MySQL backup
+
+[Service]
+Type=oneshot
+ExecStart=/opt/cloak/bin/cloak-backup.sh

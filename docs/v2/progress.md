@@ -20,10 +20,30 @@
 | I11 | 看板、报表、告警、Webhook | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i11`（2c52ce0） |
 | I12 | 总后台监管与系统配置 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i12`（7d79f64） |
 | I13 | 回放回归工具与 V1 清理（原「迁移工具与影子对比」，V1 未上线后收窄，见 D4） | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i13`（234b1af） |
-| I14 | 部署与切换 | 未开始 | | | |
+| I14 | 部署与切换 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i14`（待填） |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I13 回放回归工具与 V1 清理
+## 当前迭代：I14 测试环境部署
+
+V1 未上线（D4），本迭代按全新部署做，不做灰度切流。生产服务器和正式域名还没有，先在测试机跑通并写成手册。
+
+- [x] `deploy/release.ps1`：Windows 上交叉编译、构建两个前端、打包上传、远程执行安装；`deploy/install.sh` 幂等，升级不覆盖已生成的密钥
+- [x] 安装内容：MySQL 8.4 LTS、Redis、Nginx、cloak-admin / gateway / worker、每日备份 timer；可选演示源站
+- [x] Nginx 按 Host 分流：两个控制台走静态文件加 `/api`，其它 Host 转网关；443 由网关自己监听并按绑定域名签发证书
+- [x] 域名校验：CNAME 指向入口，或 A 记录直接指向入口 IP，都算绑定成功
+- [x] 手册：`docs/v2/deploy-guide.md`、`docs/v2/runbook.md`（含 WordPress 整页缓存排除）
+- [x] 测试机 `170.178.174.31` 已安装。公网验证：`http://demo.170-178-174-31.sslip.io/` 无参数为审核页，`?ref=DEMO1` 为真实页，带 Cookie 访问 `/products` 仍为真实页，不带 Cookie 的内页为审核页。Let's Encrypt staging 证书已签出（浏览器不信任，切正式证书见手册第 4 节）
+- [ ] 正式证书、正式域名、生产机观察期、压测达到 PRD 第 11 章。有生产机后再做
+
+### I14 验收步骤
+
+1. 打开 http://admin.170-178-174-31.sslip.io 用 `admin` / `admin123` 登录，能看到平台首页和网关节点。
+2. 打开 http://merchant.170-178-174-31.sslip.io 用 `merchant` / `merchant123` 登录，站点列表里有「演示站点」。
+3. 浏览器访问 http://demo.170-178-174-31.sslip.io/ 应是审核页；加上 `?ref=DEMO1` 应是真实页；同一浏览器再打开 `/products` 仍是真实页。
+4. 服务器上 `systemctl is-active cloak-admin cloak-gateway cloak-worker cloak-backup.timer` 都是 `active`。
+5. `docs/v2/deploy-guide.md` 与 `docs/v2/runbook.md` 能独立完成一台新机器的安装和一次备份恢复。
+
+## 上一迭代记录：I13 回放回归工具与 V1 清理
 
 V1 没有上线、没有需要保留的数据（D4），原计划的「V1 → V2 数据迁移」「与 V1 影子对比」「迁移手册」没有对象，不再做。保留并落地的是对后续仍有用的两件事：
 
@@ -379,8 +399,9 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | T12 | ~~引导条文案与链接延续只处理原始 HTML，脚本动态生成的链接需 JS SDK 补齐~~ | I10 JS SDK 已提供引导条；SDK 暂不改写动态链接的 `_ck`（页面内跳转由 Cookie 延续） |
 | T18 | WordPress 插件 v2 只做了 `php -l` 与签名器直连网关验证，未在真实 WordPress/WooCommerce 站点跑过（本地无 WP 环境）；站内页面模式 `render_wp_page` 对部分主题/页面构建器可能需要调整 | 测试服务器到位后装 WP + Woo 按 I10 验收步骤 4–7 验证 |
 | T19 | JS SDK 的审核/真实内容都在页面源码里，只是切换显示；SDK 不做严格隐藏（文档已注明），`_cloak/sdk.js` 公钥模式限流只按站点（限额已可在系统配置热调） | 需要严格隐藏用服务端或托管接入；滥用时再加按 IP 限流 |
-| T20 | 插件审核页「站内页面」模式用 `WP_Query` 替换主查询渲染，整页缓存插件（WP Super Cache 等）会把首个访客的结果缓存给所有人 | readme 已提示关闭整页缓存；I14 运行手册补常见缓存插件的排除配置 |
-| T30 | `docs/prd.md`、`docs/technical-design.md`、`docs/deploy-linux.md`、`docs/deploy-debian-bt.md` 仍是 V1（Laravel）文档 | I14 用 V2 部署与运行手册替换 |
+| T20 | 插件审核页「站内页面」模式用 `WP_Query` 替换主查询渲染，整页缓存插件会把首个访客的页面缓存给所有人 | `docs/v2/runbook.md` 第 8 节已写排除方法；插件 readme 已提示关闭整页缓存 |
+| T30 | `docs/prd.md`、`docs/technical-design.md`、`docs/deploy-linux.md`、`docs/deploy-debian-bt.md` 仍是 V1 文档 | 新部署以 `docs/v2/deploy-guide.md` 为准；旧文档待观察期结束后删除 |
+| T33 | 测试机证书是 Let's Encrypt staging，浏览器不信任；控制台目前是 HTTP | 切正式域名后按 runbook 第 6 节关掉 staging，并为控制台补 HTTPS |
 | T31 | 回放工具只能重建首访请求：回访 / 交接依赖令牌，报告归为 `needs_token`；参数值按归因结果重建，校验失败类请求归为 `param_reconstructed` | 可接受；需要精确回放时在网关加「记录原始查询串」的采样开关 |
 | T32 | 回放干跑仍会在引擎里签发访客令牌与写访客记录（只是不写决策日志、不计额度） | 可接受；令牌不会被使用，访客表按站点保留期清理 |
 | T9 | ~~广告 Referer 域名表与内置浏览器 UA 特征写死在代码里~~ | I12 已由总后台「系统配置」维护，经 `cfg:global` 下发；关闭自定义即恢复内置表 |

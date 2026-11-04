@@ -22,3 +22,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# 发布产物（deploy/release.ps1 / build.sh 生成）
+release/
+release.tar.gz
