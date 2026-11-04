@@ -118,11 +118,12 @@ func menuDefs() []menuDef {
 		{Key: "a.system.edit", Parent: "a.system", Portal: admin, Name: "修改系统配置", Type: "F", Perms: "system:config:edit"},
 		{Key: "a.template", Portal: admin, Name: "默认模板", Path: "/admin/template", Component: "admin/template", Type: "C", Perms: "system:template:list", Icon: "dict", Sort: 72, Visible: true, Roles: ops},
 		{Key: "a.template.edit", Parent: "a.template", Portal: admin, Name: "编辑模板", Type: "F", Perms: "system:template:edit"},
-		{Key: "a.user", Portal: admin, Name: "管理员", Path: "/admin/user", Component: "admin/user", Type: "C", Perms: "system:user:list", Icon: "peoples", Sort: 80, Visible: true},
-		{Key: "a.user.edit", Parent: "a.user", Portal: admin, Name: "管理员维护", Type: "F", Perms: "system:user:edit"},
-		{Key: "a.role", Portal: admin, Name: "角色", Path: "/admin/role", Component: "admin/role", Type: "C", Perms: "system:role:list", Icon: "peoples", Sort: 82, Visible: true},
+		{Key: "a.access", Portal: admin, Name: "权限管理", Path: "/admin/access", Component: "Layout", Type: "M", Perms: "system:access:list", Icon: "peoples", Sort: 80, Visible: true},
+		{Key: "a.user", Parent: "a.access", Portal: admin, Name: "账号管理", Path: "/admin/user", Component: "admin/user", Type: "C", Perms: "system:user:list", Icon: "user", Sort: 1, Visible: true},
+		{Key: "a.user.edit", Parent: "a.user", Portal: admin, Name: "账号维护", Type: "F", Perms: "system:user:edit"},
+		{Key: "a.role", Parent: "a.access", Portal: admin, Name: "角色管理", Path: "/admin/role", Component: "admin/role", Type: "C", Perms: "system:role:list", Icon: "peoples", Sort: 2, Visible: true},
 		{Key: "a.role.edit", Parent: "a.role", Portal: admin, Name: "角色维护", Type: "F", Perms: "system:role:edit"},
-		{Key: "a.menu", Portal: admin, Name: "菜单", Path: "/admin/menu", Component: "admin/menu", Type: "C", Perms: "system:menu:list", Icon: "tree", Sort: 84, Visible: true},
+		{Key: "a.menu", Parent: "a.access", Portal: admin, Name: "菜单管理", Path: "/admin/menu", Component: "admin/menu", Type: "C", Perms: "system:menu:list", Icon: "tree", Sort: 3, Visible: true},
 		{Key: "a.menu.edit", Parent: "a.menu", Portal: admin, Name: "菜单维护", Type: "F", Perms: "system:menu:edit"},
 
 		// 商户端
