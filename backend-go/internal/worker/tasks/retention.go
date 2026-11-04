@@ -16,7 +16,11 @@ type Retention struct {
 	logs      *mysql.LogRepo
 	merchants identity.MerchantRepository
 	log       *zap.Logger
+	capDays   func(context.Context) int
 }
+
+// SetCap 设置全平台日志保留上限。商户自身天数更短时仍用商户值。
+func (t *Retention) SetCap(fn func(context.Context) int) { t.capDays = fn }
 
 func NewRetention(logs *mysql.LogRepo, merchants identity.MerchantRepository, log *zap.Logger) *Retention {
 	return &Retention{logs: logs, merchants: merchants, log: log}
@@ -52,6 +56,11 @@ func (t *Retention) once(ctx context.Context) {
 		days := int(m.LogRetentionDays)
 		if days <= 0 {
 			days = 90
+		}
+		if t.capDays != nil {
+			if capN := t.capDays(ctx); capN > 0 && days > capN {
+				days = capN
+			}
 		}
 		before := time.Now().AddDate(0, 0, -days)
 		n, err := t.logs.Purge(ctx, m.ID, before, 5000)

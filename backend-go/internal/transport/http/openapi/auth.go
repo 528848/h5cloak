@@ -15,6 +15,7 @@ import (
 	"net/netip"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	goredis "github.com/redis/go-redis/v9"
@@ -197,8 +198,8 @@ var errNoRedis = errors.New("redis unavailable")
 // Limiter 两级限流：每密钥每秒、每站点每分钟（固定窗口，Redis INCR）。
 type Limiter struct {
 	rdb       *goredis.Client
-	perKeySec int64
-	perSiteMn int64
+	perKeySec atomic.Int64
+	perSiteMn atomic.Int64
 }
 
 func NewLimiter(rdb *goredis.Client, perKeyPerSecond, perSitePerMinute int64) *Limiter {
@@ -208,7 +209,23 @@ func NewLimiter(rdb *goredis.Client, perKeyPerSecond, perSitePerMinute int64) *L
 	if perSitePerMinute <= 0 {
 		perSitePerMinute = 2000
 	}
-	return &Limiter{rdb: rdb, perKeySec: perKeyPerSecond, perSiteMn: perSitePerMinute}
+	l := &Limiter{rdb: rdb}
+	l.perKeySec.Store(perKeyPerSecond)
+	l.perSiteMn.Store(perSitePerMinute)
+	return l
+}
+
+// SetLimits 热更新两级限额。非正数保持原值。
+func (l *Limiter) SetLimits(perKeyPerSecond, perSitePerMinute int64) {
+	if l == nil {
+		return
+	}
+	if perKeyPerSecond > 0 {
+		l.perKeySec.Store(perKeyPerSecond)
+	}
+	if perSitePerMinute > 0 {
+		l.perSiteMn.Store(perSitePerMinute)
+	}
 }
 
 // Allow 返回是否放行；Redis 不可用时放行。
@@ -227,5 +244,5 @@ func (l *Limiter) Allow(ctx context.Context, site *snapshot.Site) (bool, error) 
 	if _, err := pipe.Exec(ctx); err != nil {
 		return true, err
 	}
-	return c1.Val() <= l.perKeySec && c2.Val() <= l.perSiteMn, nil
+	return c1.Val() <= l.perKeySec.Load() && c2.Val() <= l.perSiteMn.Load(), nil
 }

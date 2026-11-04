@@ -34,6 +34,12 @@ router.beforeEach(async (to) => {
     NProgress.start();
     setPageTitle(to.meta?.title);
   }
+  if (to.path === LOGIN_PATH && to.query.ticket) {
+    // 总后台模拟登录票据优先于本地已有会话，由登录页兑换
+    removeToken();
+    useUserStore().clearData();
+    return;
+  }
   if (!getToken()) {
     // 未登录跳转登录界面
     if (!isWhiteList(to.path)) {

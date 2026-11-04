@@ -45,7 +45,16 @@ func main() {
 
 	sites := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
 	go probeLoop(ctx, rt.Log, sites)
-	go tasks.NewRetention(logRepo, merchantRepo, rt.Log).Run(ctx)
+	platformRepo := mysql.NewPlatformRepo(db)
+	retention := tasks.NewRetention(logRepo, merchantRepo, rt.Log)
+	retention.SetCap(func(ctx context.Context) int {
+		n, err := platformRepo.RetentionDays(ctx)
+		if err != nil {
+			return 0
+		}
+		return n
+	})
+	go retention.Run(ctx)
 
 	// 聚合、告警、Webhook 投递、导出
 	var qc *quota.Checker
@@ -55,6 +64,13 @@ func main() {
 	opsSvc := opssvc.New(opssvc.Deps{
 		Repo: mysql.NewOpsRepo(db), Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
 		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Log: rt.Log,
+	})
+	opsSvc.SetAttemptSource(func(ctx context.Context) int {
+		n, err := platformRepo.WebhookAttempts(ctx)
+		if err != nil {
+			return 0
+		}
+		return n
 	})
 	tasks.NewOps(opsSvc, rt.Log).Run(ctx)
 

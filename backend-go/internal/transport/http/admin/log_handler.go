@@ -33,6 +33,16 @@ func (h *logHandler) detail(c *gin.Context) {
 	response.Success(c, row, "查询成功")
 }
 
+// apiLogs 接口调用日志（api_logs），商户端与总后台共用。
+func (h *logHandler) apiLogs(c *gin.Context) {
+	rows, total, err := h.svc.ListAPI(c.Request.Context(), merchantScope(c), querySiteID(c), c.Query("endpoint"), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 20))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Page(c, rows, total)
+}
+
 func (h *logHandler) stats(c *gin.Context) {
 	row, err := h.svc.Stats(c.Request.Context(), merchantScope(c), querySiteID(c))
 	if err != nil {

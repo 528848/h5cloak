@@ -183,6 +183,39 @@ func brief(r *decisionlog.Record) map[string]any {
 	}
 }
 
+// ListAPI 查询 api_logs。merchantID 为 0 时返回全平台。
+func (s *Service) ListAPI(ctx context.Context, merchantID uint64, siteID uint64, endpoint string, page, size int) ([]map[string]any, int64, error) {
+	from := time.Now().AddDate(0, 0, -7)
+	rows, total, err := s.repo.ListAPILogs(ctx, mysql.APILogFilter{
+		MerchantID: merchantID, SiteID: siteID, Endpoint: strings.TrimSpace(endpoint), From: &from, Page: page, Size: size,
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	ids := make([]uint64, 0, len(rows))
+	mids := make([]uint64, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].SiteID)
+		mids = append(mids, rows[i].MerchantID)
+	}
+	siteNames, _ := s.sites.SiteNames(ctx, ids)
+	merchantNames := map[uint64]string{}
+	if merchantID == 0 {
+		merchantNames, _ = s.sites.MerchantNames(ctx, mids)
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for i := range rows {
+		r := rows[i]
+		out = append(out, map[string]any{
+			"id": r.ID, "requestId": r.RequestID, "merchantId": r.MerchantID, "merchantName": merchantNames[r.MerchantID],
+			"siteId": r.SiteID, "siteName": siteNames[r.SiteID], "keyPrefix": r.KeyPrefix, "endpoint": r.Endpoint,
+			"status": r.Status, "errorCode": r.ErrorCode, "latencyMs": r.LatencyMs, "ip": r.IP,
+			"createdAt": r.CreatedAt.Format(layout),
+		})
+	}
+	return out, total, nil
+}
+
 func parseTime(s string) (*time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {

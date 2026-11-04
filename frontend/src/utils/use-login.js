@@ -6,7 +6,11 @@ import { getToken, setToken, removeToken } from '@/utils/token-util';
 import { goLogin } from '@/utils/common';
 import { usePageTab } from '@/utils/use-page-tab';
 import { useUserStore } from '@/store/modules/user';
-import { login as loginApi, logout as logoutApi } from '@/api/login';
+import {
+  login as loginApi,
+  loginByTicket as loginTicketApi,
+  logout as logoutApi
+} from '@/api/login';
 import { getUserInfo } from '@/api/layout';
 import { isPortalUser, portalDeniedMessage } from '@portal';
 
@@ -61,6 +65,29 @@ export function useLogin() {
     goHome();
   };
 
+  /** 模拟登录票据兑换，只在商户端使用 */
+  const loginByTicket = async (ticket) => {
+    const result = await loginTicketApi(ticket);
+    const token = result.token;
+    if (!token) {
+      return Promise.reject(new Error(result.msg));
+    }
+    setToken(token, true);
+    try {
+      const userInfo = await getUserInfo();
+      if (!isPortalUser(userInfo?.user)) {
+        removeToken();
+        return Promise.reject(new Error(portalDeniedMessage));
+      }
+    } catch (e) {
+      removeToken();
+      return Promise.reject(e);
+    }
+    EleMessage.success({ message: '已进入商户后台', plain: true });
+    clearData();
+    goHome();
+  };
+
   /**
    * 退出登录
    */
@@ -108,6 +135,7 @@ export function useLogin() {
 
   return {
     login,
+    loginByTicket,
     logout,
     checkLogin,
     goHome,

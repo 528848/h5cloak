@@ -17,6 +17,7 @@ import (
 	"cloak/internal/config"
 	"cloak/internal/domain/decisionlog"
 	"cloak/internal/engine"
+	"cloak/internal/engine/globalcfg"
 	"cloak/internal/engine/snapshot"
 	"cloak/internal/logpipe"
 	"cloak/internal/pkg/requestid"
@@ -40,6 +41,8 @@ type Deps struct {
 	Pipe  *logpipe.Pipe
 	Quota *quota.Checker
 	Geo   geoip.Resolver
+	// Global 全局开关；为空时不覆盖判定
+	Global *globalcfg.Holder
 	// OpenAPI 开放接口处理器；命中 /api/open/ 且 Host 不是已绑定站点域名时交给它
 	OpenAPI http.Handler
 }
@@ -169,6 +172,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		h.d.Quota.Count(site.MerchantID)
+	}
+	if h.d.Global != nil {
+		d.Content, d.VisitorToken, d.Trace = globalcfg.Overlay(h.d.Global.Get(), d.Content, d.VisitorToken, "hosted", d.Trace)
 	}
 	h.decisions.WithLabelValues(d.Content, d.TouchType).Inc()
 

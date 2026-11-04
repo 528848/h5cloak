@@ -20,7 +20,11 @@ const (
 )
 
 // SnapshotLoader 实现 snapshot.Loader。
-type SnapshotLoader struct{ rdb *goredis.Client }
+type SnapshotLoader struct {
+	rdb *goredis.Client
+	// OnGlobal 收到 cfg:changed 的 global 消息时调用，用于重载 cfg:global。
+	OnGlobal func()
+}
 
 func NewSnapshotLoader(rdb *goredis.Client) *SnapshotLoader { return &SnapshotLoader{rdb: rdb} }
 
@@ -83,6 +87,12 @@ func (l *SnapshotLoader) Subscribe(ctx context.Context, store *snapshot.Store, l
 		case msg, ok := <-ch:
 			if !ok {
 				return
+			}
+			if msg.Payload == "global" {
+				if l.OnGlobal != nil {
+					l.OnGlobal()
+				}
+				continue
 			}
 			id, deleted, valid := parseChange(msg.Payload)
 			if !valid {

@@ -3,11 +3,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
+	goredis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"cloak/internal/adapter/geoip"
@@ -18,6 +22,7 @@ import (
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/engine"
+	"cloak/internal/engine/globalcfg"
 	"cloak/internal/engine/snapshot"
 	"cloak/internal/logpipe"
 	"cloak/internal/pkg/httpserver"
@@ -35,6 +40,7 @@ func main() {
 	defer rt.Close()
 
 	deps := gateway.Deps{Cfg: rt.Cfg, Log: rt.Log, Metrics: rt.Metrics}
+	var limiterSlot atomic.Pointer[openapi.Limiter]
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -49,7 +55,66 @@ func main() {
 		store = snapshot.NewStore(loader)
 		deps.Store = store
 		deps.Engine = engine.New(redis.NewEngineStore(rdb))
+		holder := globalcfg.NewHolder()
+		deps.Global = holder
+		var lastRaw string
+		var reloadMu sync.Mutex
+		reload := func() {
+			reloadMu.Lock()
+			defer reloadMu.Unlock()
+			c, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			raw, err := rdb.Get(c, globalcfg.RedisKey).Bytes()
+			if errors.Is(err, goredis.Nil) {
+				if lastRaw == "default" {
+					return
+				}
+				lastRaw = "default"
+				cfg := globalcfg.Defaults()
+				holder.Store(cfg)
+				globalcfg.ApplyRuntime(cfg, func(k, s int64) {
+					if l := limiterSlot.Load(); l != nil {
+						l.SetLimits(k, s)
+					}
+				})
+				return
+			}
+			if err != nil {
+				rt.Log.Warn("load cfg:global", zap.Error(err))
+				return
+			}
+			if string(raw) == lastRaw {
+				return
+			}
+			cfg, err := globalcfg.Parse(raw)
+			if err != nil {
+				rt.Log.Warn("parse cfg:global", zap.Error(err))
+				return
+			}
+			lastRaw = string(raw)
+			holder.Store(cfg)
+			globalcfg.ApplyRuntime(cfg, func(k, s int64) {
+				if l := limiterSlot.Load(); l != nil {
+					l.SetLimits(k, s)
+				}
+			})
+			rt.Log.Info("global config applied", zap.Bool("emergency", cfg.EmergencyReview))
+		}
+		loader.OnGlobal = reload
 		go loader.Subscribe(ctx, store, rt.Log)
+		go func() {
+			tk := time.NewTicker(4 * time.Second)
+			defer tk.Stop()
+			reload()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tk.C:
+					reload()
+				}
+			}
+		}()
 		rt.Log.Info("snapshot store ready, subscribed to cfg:changed")
 	}
 
@@ -109,9 +174,14 @@ func main() {
 			rt.Log.Error("secretbox", zap.Error(err))
 			os.Exit(1)
 		}
+		limit := openapi.NewLimiter(rdb, 0, 0)
+		limiterSlot.Store(limit)
+		if cfg := deps.Global.Get(); cfg != nil {
+			limit.SetLimits(int64(cfg.RatePerKey), int64(cfg.RatePerSite))
+		}
 		od := openapi.Deps{
-			Log: rt.Log, Auth: openapi.NewAuthenticator(store, box, rdb), Limit: openapi.NewLimiter(rdb, 0, 0),
-			Engine: deps.Engine, Pipe: pipe, Quota: deps.Quota, Geo: deps.Geo, Rdb: rdb, ClientIP: handler.ClientIP,
+			Log: rt.Log, Auth: openapi.NewAuthenticator(store, box, rdb), Limit: limit,
+			Engine: deps.Engine, Pipe: pipe, Quota: deps.Quota, Geo: deps.Geo, Global: deps.Global, Rdb: rdb, ClientIP: handler.ClientIP,
 		}
 		if db, err := mysql.Open(rt.Cfg.MySQL, rt.Log); err != nil {
 			rt.Log.Warn("mysql unavailable, promo-codes and decision-logs open endpoints disabled", zap.Error(err))

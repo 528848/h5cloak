@@ -4,6 +4,7 @@ package ua
 import (
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // Info 识别结果。
@@ -15,20 +16,63 @@ type Info struct {
 	DeviceFamily string `json:"deviceFamily"`
 }
 
-var inAppMarkers = []struct{ marker, app string }{
-	{"FBAN", "facebook"}, {"FBAV", "facebook"}, {"FB_IAB", "facebook"}, {"FBIOS", "facebook"},
-	{"Instagram", "instagram"},
-	{"musical_ly", "tiktok"}, {"BytedanceWebview", "tiktok"}, {"TikTok", "tiktok"}, {"Bytedance", "tiktok"},
-	{"Snapchat", "snapchat"},
-	{"Twitter", "twitter"}, {"TwitterAndroid", "twitter"},
-	{"LinkedInApp", "linkedin"},
-	{"Line/", "line"},
-	{"MicroMessenger", "wechat"},
-	{"Pinterest", "pinterest"},
-	{"KAKAOTALK", "kakao"},
-	{"Kwai", "kwai"}, {"KwaiPro", "kwai"}, {"Kuaishou", "kwai"},
-	{"Telegram", "telegram"},
-	{"GSA/", "google_app"},
+// Marker 内置浏览器特征。可被全局配置整体替换。
+type Marker struct {
+	Marker string `json:"marker"`
+	App    string `json:"app"`
+}
+
+func builtinMarkers() []Marker {
+	return []Marker{
+		{"FBAN", "facebook"}, {"FBAV", "facebook"}, {"FB_IAB", "facebook"}, {"FBIOS", "facebook"},
+		{"Instagram", "instagram"},
+		{"musical_ly", "tiktok"}, {"BytedanceWebview", "tiktok"}, {"TikTok", "tiktok"}, {"Bytedance", "tiktok"},
+		{"Snapchat", "snapchat"},
+		{"Twitter", "twitter"}, {"TwitterAndroid", "twitter"},
+		{"LinkedInApp", "linkedin"},
+		{"Line/", "line"},
+		{"MicroMessenger", "wechat"},
+		{"Pinterest", "pinterest"},
+		{"KAKAOTALK", "kakao"},
+		{"Kwai", "kwai"}, {"KwaiPro", "kwai"}, {"Kuaishou", "kwai"},
+		{"Telegram", "telegram"},
+		{"GSA/", "google_app"},
+	}
+}
+
+var (
+	markerMu     sync.RWMutex
+	inAppMarkers = builtinMarkers()
+)
+
+// BuiltinMarkers 返回内置特征的副本。
+func BuiltinMarkers() []Marker { return builtinMarkers() }
+
+// SetMarkers 用全局配置替换特征表。空列表恢复内置默认。
+func SetMarkers(ms []Marker) {
+	markerMu.Lock()
+	defer markerMu.Unlock()
+	next := make([]Marker, 0, len(ms))
+	for _, m := range ms {
+		m.Marker = strings.TrimSpace(m.Marker)
+		m.App = strings.TrimSpace(m.App)
+		if m.Marker != "" && m.App != "" {
+			next = append(next, m)
+		}
+	}
+	if len(next) == 0 {
+		inAppMarkers = builtinMarkers()
+		return
+	}
+	inAppMarkers = next
+}
+
+func markers() []Marker {
+	markerMu.RLock()
+	defer markerMu.RUnlock()
+	out := make([]Marker, len(inAppMarkers))
+	copy(out, inAppMarkers)
+	return out
 }
 
 var (
@@ -44,10 +88,10 @@ func Parse(uaStr string) Info {
 		info.DeviceFamily = "other"
 		return info
 	}
-	for _, m := range inAppMarkers {
-		if strings.Contains(uaStr, m.marker) {
+	for _, m := range markers() {
+		if strings.Contains(uaStr, m.Marker) {
 			info.InApp = true
-			info.App = m.app
+			info.App = m.App
 			break
 		}
 	}

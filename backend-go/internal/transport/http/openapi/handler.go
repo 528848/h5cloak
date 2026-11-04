@@ -19,6 +19,7 @@ import (
 	"cloak/internal/app/logsvc"
 	"cloak/internal/domain/decisionlog"
 	"cloak/internal/engine"
+	"cloak/internal/engine/globalcfg"
 	"cloak/internal/engine/snapshot"
 	"cloak/internal/logpipe"
 	"cloak/internal/proxy"
@@ -34,6 +35,7 @@ type Deps struct {
 	Pipe   *logpipe.Pipe
 	Quota  *quota.Checker
 	Geo    geoip.Resolver
+	Global *globalcfg.Holder
 	Rdb    *goredis.Client
 	Attr   *attrsvc.Service
 	Logs   *logsvc.Service
@@ -217,6 +219,9 @@ func (h *Handler) decide(ctx context.Context, p *Principal, in *decisionReq, u *
 			}
 		}
 		h.d.Quota.Count(p.Site.MerchantID)
+	}
+	if h.d.Global != nil {
+		d.Content, d.VisitorToken, d.Trace = globalcfg.Overlay(h.d.Global.Get(), d.Content, d.VisitorToken, entry, d.Trace)
 	}
 	return rc, d, quotaHit
 }

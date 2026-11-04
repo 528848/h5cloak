@@ -78,6 +78,15 @@
           >
             {{ getOptionLabel(siteStatusOptions, row.status) }}
           </el-tag>
+          <el-tag
+            v-if="row.platformHold"
+            type="danger"
+            effect="plain"
+            size="small"
+            style="margin-left: 6px"
+          >
+            平台停用
+          </el-tag>
         </template>
         <template #domains="{ row }">
           {{ row.boundDomainCount || 0 }} / {{ row.domainCount || 0 }}
@@ -172,7 +181,7 @@
     {
       prop: 'status',
       label: '状态',
-      width: 90,
+      width: 150,
       align: 'center',
       slot: 'status',
       formatter: (row) => getOptionLabel(siteStatusOptions, row.status)

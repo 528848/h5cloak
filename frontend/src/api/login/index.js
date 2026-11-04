@@ -12,6 +12,15 @@ export async function login(data) {
   return Promise.reject(new Error(res.data.msg));
 }
 
+/** 兑换总后台签发的模拟登录票据 */
+export async function loginByTicket(ticket) {
+  const res = await request.post('/login/ticket', { ticket });
+  if (res.data.code === 200) {
+    return { ...(res.data.data || {}), msg: res.data.msg };
+  }
+  return Promise.reject(new Error(res.data.msg));
+}
+
 /**
  * 获取验证码
  */

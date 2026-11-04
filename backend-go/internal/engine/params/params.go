@@ -4,6 +4,7 @@ package params
 import (
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"cloak/internal/engine/pathrule"
@@ -313,12 +314,48 @@ func channel(res Result, ms []Matched) string {
 	return ""
 }
 
-// 广告跳转 Referer 域名表（可被全局配置覆盖，这里是内置默认）。
-var adRefererHosts = []string{
-	"facebook.com", "fb.com", "instagram.com", "l.facebook.com", "lm.facebook.com",
-	"googleadservices.com", "googlesyndication.com", "doubleclick.net", "google.com",
-	"tiktok.com", "ads.tiktok.com", "t.co", "twitter.com", "x.com",
-	"bing.com", "snapchat.com", "linkedin.com", "lnkd.in", "kwai.com", "kwai-pro.com",
+func builtinAdReferers() []string {
+	return []string{
+		"facebook.com", "fb.com", "instagram.com", "l.facebook.com", "lm.facebook.com",
+		"googleadservices.com", "googlesyndication.com", "doubleclick.net", "google.com",
+		"tiktok.com", "ads.tiktok.com", "t.co", "twitter.com", "x.com",
+		"bing.com", "snapchat.com", "linkedin.com", "lnkd.in", "kwai.com", "kwai-pro.com",
+	}
+}
+
+var (
+	adMu           sync.RWMutex
+	adRefererHosts = builtinAdReferers()
+)
+
+// BuiltinAdReferers 返回内置广告 Referer 域名的副本。
+func BuiltinAdReferers() []string { return builtinAdReferers() }
+
+// SetAdReferers 用全局配置替换广告 Referer 域名表。空列表恢复内置默认。
+func SetAdReferers(hosts []string) {
+	adMu.Lock()
+	defer adMu.Unlock()
+	next := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSpace(h))
+		h = strings.TrimPrefix(h, "*.")
+		if h != "" {
+			next = append(next, h)
+		}
+	}
+	if len(next) == 0 {
+		adRefererHosts = builtinAdReferers()
+		return
+	}
+	adRefererHosts = next
+}
+
+func refererHosts() []string {
+	adMu.RLock()
+	defer adMu.RUnlock()
+	out := make([]string, len(adRefererHosts))
+	copy(out, adRefererHosts)
+	return out
 }
 
 func refererIsAd(ref string) bool {
@@ -330,7 +367,7 @@ func refererIsAd(ref string) bool {
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
-	for _, h := range adRefererHosts {
+	for _, h := range refererHosts() {
 		if host == h || strings.HasSuffix(host, "."+h) {
 			return true
 		}

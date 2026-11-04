@@ -1,7 +1,10 @@
 // Package site 定义站点、域名、源站、审核内容和路径规则。
 package site
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 const (
 	TypeHosted = "hosted"
@@ -55,6 +58,7 @@ type Site struct {
 	Name                 string
 	SiteType             string
 	Status               string
+	PlatformHold         bool `gorm:"column:platform_hold"`
 	Remark               *string
 	PublishableKey       string
 	SecretPrefix         string
@@ -171,8 +175,35 @@ type PathRule struct {
 
 func (PathRule) TableName() string { return "site_path_rules" }
 
-// DefaultPathRules 新建站点时的默认路径规则。
+var (
+	pathRuleMu sync.RWMutex
+	pathRuleOv []PathRule
+)
+
+// SetDefaultPathRules 用总后台保存的默认规则替换内置表。空列表恢复内置。只影响之后新建的站点。
+func SetDefaultPathRules(rules []PathRule) {
+	pathRuleMu.Lock()
+	defer pathRuleMu.Unlock()
+	if len(rules) == 0 {
+		pathRuleOv = nil
+		return
+	}
+	pathRuleOv = append([]PathRule(nil), rules...)
+}
+
+// DefaultPathRules 新建站点时复制的路径规则。
 func DefaultPathRules() []PathRule {
+	pathRuleMu.RLock()
+	ov := append([]PathRule(nil), pathRuleOv...)
+	pathRuleMu.RUnlock()
+	if len(ov) > 0 {
+		return ov
+	}
+	return BuiltinPathRules()
+}
+
+// BuiltinPathRules 代码内置的默认路径规则。
+func BuiltinPathRules() []PathRule {
 	type item struct {
 		pattern, match, action, remark string
 	}

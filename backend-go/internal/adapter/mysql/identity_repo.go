@@ -178,6 +178,106 @@ func (r *IdentityRepo) WriteOperation(ctx context.Context, log *identity.Operati
 	return r.db.WithContext(ctx).Create(log).Error
 }
 
+// ListPlatformUsers 总后台账号（merchant_id 为空）。
+func (r *IdentityRepo) ListPlatformUsers(ctx context.Context, f identity.UserFilter) ([]identity.User, int64, error) {
+	q := r.db.WithContext(ctx).Model(&identity.User{}).Where("users.merchant_id IS NULL")
+	if f.Keyword != "" {
+		like := "%" + escapeLike(f.Keyword) + "%"
+		q = q.Where("users.username LIKE ? OR users.nickname LIKE ?", like, like)
+	}
+	if f.Status != "" {
+		q = q.Where("users.status = ?", f.Status)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []identity.User
+	err := q.Preload("Roles").Order("users.id ASC").Offset(offset(f.Page, f.Size)).Limit(limit(f.Size)).Find(&rows).Error
+	return rows, total, err
+}
+
+// CountEnabledSuperExcept 除指定用户外，仍启用的超级管理员数量。
+func (r *IdentityRepo) CountEnabledSuperExcept(ctx context.Context, exceptID uint64) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&identity.User{}).
+		Joins("JOIN user_roles ur ON ur.user_id = users.id").
+		Joins("JOIN roles ro ON ro.id = ur.role_id AND ro.role_key = ?", identity.RoleSuperAdmin).
+		Where("users.merchant_id IS NULL AND users.status = ? AND users.id <> ?", identity.StatusEnabled, exceptID).
+		Count(&n).Error
+	return n, err
+}
+
+func (r *IdentityRepo) FindRole(ctx context.Context, id uint64) (*identity.Role, error) {
+	var role identity.Role
+	err := r.db.WithContext(ctx).First(&role, id).Error
+	return wrap(&role, err)
+}
+
+func (r *IdentityRepo) CreateRole(ctx context.Context, role *identity.Role) error {
+	return r.db.WithContext(ctx).Create(role).Error
+}
+
+func (r *IdentityRepo) UpdateRole(ctx context.Context, role *identity.Role, fields ...string) error {
+	q := r.db.WithContext(ctx).Model(role)
+	if len(fields) > 0 {
+		q = q.Select(fields)
+	}
+	return q.Updates(role).Error
+}
+
+func (r *IdentityRepo) DeleteRole(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DELETE FROM role_menus WHERE role_id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := tx.Exec("DELETE FROM user_roles WHERE role_id = ?", id).Error; err != nil {
+			return err
+		}
+		return tx.Delete(&identity.Role{}, id).Error
+	})
+}
+
+func (r *IdentityRepo) CountRoleUsers(ctx context.Context, roleID uint64) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Table("user_roles").Where("role_id = ?", roleID).Count(&n).Error
+	return n, err
+}
+
+func (r *IdentityRepo) RoleMenuIDs(ctx context.Context, roleID uint64) ([]uint64, error) {
+	var ids []uint64
+	err := r.db.WithContext(ctx).Table("role_menus").Where("role_id = ?", roleID).Pluck("menu_id", &ids).Error
+	if ids == nil {
+		ids = []uint64{}
+	}
+	return ids, err
+}
+
+func (r *IdentityRepo) ReplaceRoleMenus(ctx context.Context, roleID uint64, menuIDs []uint64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("DELETE FROM role_menus WHERE role_id = ?", roleID).Error; err != nil {
+			return err
+		}
+		for _, mid := range menuIDs {
+			if err := tx.Exec("INSERT IGNORE INTO role_menus (role_id, menu_id) VALUES (?, ?)", roleID, mid).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ListMenus 某门户的全部菜单（含停用），供总后台菜单管理。
+func (r *IdentityRepo) ListMenus(ctx context.Context, portal string) ([]identity.Menu, error) {
+	var menus []identity.Menu
+	err := r.db.WithContext(ctx).Where("portal = ?", portal).Order("sort ASC, id ASC").Find(&menus).Error
+	return menus, err
+}
+
+func (r *IdentityRepo) UpdateMenu(ctx context.Context, id uint64, fields map[string]any) error {
+	return r.db.WithContext(ctx).Model(&identity.Menu{}).Where("id = ?", id).Updates(fields).Error
+}
+
 func wrap[T any](v *T, err error) (*T, error) {
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrNotFound

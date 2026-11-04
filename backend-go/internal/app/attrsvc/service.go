@@ -409,11 +409,21 @@ func (s *Service) ListCodes(ctx context.Context, merchantID uint64, in CodeListI
 		return nil, 0, err
 	}
 	names := s.siteNames(ctx, rows)
+	merchantNames := map[uint64]string{}
+	if merchantID == 0 && s.sites != nil {
+		mids := make([]uint64, 0, len(rows))
+		for i := range rows {
+			mids = append(mids, rows[i].MerchantID)
+		}
+		merchantNames, _ = s.sites.MerchantNames(ctx, mids)
+	}
 	now := time.Now()
 	out := make([]map[string]any, 0, len(rows))
 	for i := range rows {
 		row := codeRow(&rows[i], now)
 		row["siteName"] = names[rows[i].SiteID]
+		row["merchantId"] = rows[i].MerchantID
+		row["merchantName"] = merchantNames[rows[i].MerchantID]
 		out = append(out, row)
 	}
 	return out, total, nil
@@ -477,6 +487,18 @@ func (s *Service) UpdateCode(ctx context.Context, merchantID, id uint64, in Code
 	}
 	s.notify(c.SiteID)
 	return nil
+}
+
+// PlatformChangeCodesStatus 总后台强制停用或恢复，不校验商户归属。
+func (s *Service) PlatformChangeCodesStatus(ctx context.Context, ids []uint64, status string) (int64, error) {
+	if status != attribution.StatusEnabled && status != attribution.StatusDisabled {
+		return 0, errf(400, "状态无效")
+	}
+	n, err := s.repo.UpdateCodesStatusPlatform(ctx, ids, status)
+	if err == nil {
+		s.notifyCodes(ctx, ids)
+	}
+	return n, err
 }
 
 func (s *Service) ChangeCodesStatus(ctx context.Context, merchantID uint64, ids []uint64, status string) (int64, error) {

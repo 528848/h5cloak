@@ -116,9 +116,11 @@
   import { useLogin } from '@/utils/use-login';
   import { getCaptcha } from '@/api/login';
   import { useI18n } from 'vue-i18n';
-  import { APP_NAME as PROJECT_NAME } from '@portal';
+  import { useRoute } from 'vue-router';
+  import { APP_NAME as PROJECT_NAME, APP_PORTAL } from '@portal';
 
-  const { login, checkLogin } = useLogin();
+  const route = useRoute();
+  const { login, loginByTicket, checkLogin } = useLogin();
   const { t } = useI18n();
 
   /** 页签选中 */
@@ -231,11 +233,20 @@
     }
   };
 
-  /** 如果已登录直接进入首页 */
-  checkLogin().catch(() => {
-    // 未登录则获取验证码
-    queryCaptcha();
-  });
+  /** 模拟登录票据优先于已有会话；否则已登录直接进入首页 */
+  const ticket = [route.query.ticket].flat()[0];
+  if (APP_PORTAL === 'merchant' && ticket) {
+    loading.value = true;
+    loginByTicket(String(ticket)).catch((e) => {
+      loading.value = false;
+      EleMessage.error({ message: e.message, plain: true });
+      queryCaptcha();
+    });
+  } else {
+    checkLogin().catch(() => {
+      queryCaptcha();
+    });
+  }
 </script>
 
 <style lang="scss" scoped>

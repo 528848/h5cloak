@@ -191,8 +191,16 @@ func (s *Service) ChangeStatus(ctx context.Context, merchantID, id uint64, statu
 	if err != nil {
 		return err
 	}
+	if !platform && status == domainsite.StatusEnabled && site.PlatformHold {
+		return errf(403, "该站点已被平台强制停用，请联系平台恢复")
+	}
 	site.Status = status
-	return s.done(id, s.repo.UpdateSite(ctx, site, "Status"))
+	fields := []string{"Status"}
+	if platform {
+		site.PlatformHold = status == domainsite.StatusDisabled
+		fields = append(fields, "PlatformHold")
+	}
+	return s.done(id, s.repo.UpdateSite(ctx, site, fields...))
 }
 
 func (s *Service) Delete(ctx context.Context, merchantID, id uint64) error {
@@ -817,7 +825,8 @@ func brief(site *domainsite.Site) map[string]any {
 	_ = json.Unmarshal(site.SecretIPAllowlist, &allow)
 	return map[string]any{
 		"siteId": site.ID, "merchantId": site.MerchantID, "name": site.Name, "siteType": site.SiteType, "status": site.Status,
-		"remark": deref(site.Remark), "publishableKey": site.PublishableKey, "secretPrefix": site.SecretPrefix,
+		"platformHold": site.PlatformHold,
+		"remark":       deref(site.Remark), "publishableKey": site.PublishableKey, "secretPrefix": site.SecretPrefix,
 		"secretIpAllowlist": allow, "cookieName": site.CookieName, "cookieDomain": deref(site.CookieDomain),
 		"attributionTtlDays": site.AttributionTTLDays, "renewMode": site.RenewMode,
 		"noAttributionAction": site.NoAttributionAction, "failMode": site.FailMode, "minConfidence": site.MinConfidence,

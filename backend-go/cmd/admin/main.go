@@ -17,6 +17,7 @@ import (
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/opssvc"
+	"cloak/internal/app/platformsvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/app/usersvc"
@@ -92,6 +93,22 @@ func main() {
 		Repo: mysql.NewOpsRepo(db), Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
 		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Log: rt.Log,
 	})
+	platformRepo := mysql.NewPlatformRepo(db)
+	platformSvc := platformsvc.New(platformRepo, repo, siteRepo, merchantRepo, tokens, rdb, rt.Cfg.Notify.ConsoleURL)
+	opsSvc.SetAttemptSource(func(ctx context.Context) int {
+		n, err := platformRepo.WebhookAttempts(ctx)
+		if err != nil {
+			return 0
+		}
+		return n
+	})
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := platformSvc.Publish(ctx); err != nil {
+			rt.Log.Warn("publish global config", zap.Error(err))
+		}
+	}()
 
 	// 启动时把全部站点快照刷一遍，保证 Redis 与数据库一致
 	if rdb != nil {
@@ -118,6 +135,7 @@ func main() {
 		Publisher:   publisher,
 		Logs:        logSvc,
 		Ops:         opsSvc,
+		Platform:    platformSvc,
 		Rdb:         rdb,
 		Repo:        merchantRepo,
 		Authn:       middleware.NewAuthenticator(tokens, repo, rbacSvc),

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -19,18 +20,22 @@ import (
 
 // Service 运营服务。
 type Service struct {
-	repo      *mysql.OpsRepo
-	logs      *mysql.LogRepo
-	sites     *mysql.SiteRepo
-	merchants *mysql.MerchantRepo
-	quota     *quota.Checker // 可为 nil（无 Redis 时用 usage_counters）
-	cfg       config.Notify
-	exportDir string
-	mailer    *notifier.Mailer
-	telegram  *notifier.Telegram
-	webhook   *notifier.Webhook
-	log       *zap.Logger
-	now       func() time.Time
+	repo       *mysql.OpsRepo
+	logs       *mysql.LogRepo
+	sites      *mysql.SiteRepo
+	merchants  *mysql.MerchantRepo
+	quota      *quota.Checker // 可为 nil（无 Redis 时用 usage_counters）
+	cfg        config.Notify
+	exportDir  string
+	mailer     *notifier.Mailer
+	telegram   *notifier.Telegram
+	webhook    *notifier.Webhook
+	log        *zap.Logger
+	now        func() time.Time
+	attemptSrc func(context.Context) int
+	attemptMu  sync.Mutex
+	attemptN   int
+	attemptAt  time.Time
 }
 
 // Deps 依赖。
@@ -57,6 +62,9 @@ func New(d Deps) *Service {
 }
 
 func errf(code int, msg string) error { return &authsvc.Error{Code: code, Msg: msg} }
+
+// SetAttemptSource 提供 Webhook 最大尝试次数。结果缓存 15 秒，未设置时用配置文件。
+func (s *Service) SetAttemptSource(fn func(context.Context) int) { s.attemptSrc = fn }
 
 const layout = "2006-01-02 15:04:05"
 

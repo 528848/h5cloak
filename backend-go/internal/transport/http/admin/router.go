@@ -15,6 +15,7 @@ import (
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/opssvc"
+	"cloak/internal/app/platformsvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/app/usersvc"
@@ -43,6 +44,7 @@ type Deps struct {
 	Publisher   *snapshotsvc.Publisher
 	Logs        *logsvc.Service
 	Ops         *opssvc.Service
+	Platform    *platformsvc.Service
 	Rdb         *goredis.Client
 	Repo        identity.MerchantRepository
 	Authn       *middleware.Authenticator
@@ -94,6 +96,10 @@ func NewRouter(d Deps) *gin.Engine {
 
 	api.POST("/login", ah.login)
 	api.GET("/captchaImage", ah.captcha)
+	if d.Platform != nil {
+		ticket := &platformHandler{svc: d.Platform, attr: d.Attribution, rdb: d.Rdb}
+		api.POST("/login/ticket", ticket.redeemTicket)
+	}
 
 	authed := api.Group("", d.Authn.Required(), d.OpLog.Handler())
 	authed.POST("/logout", ah.logout)
@@ -169,6 +175,32 @@ func NewRouter(d Deps) *gin.Engine {
 	adminG.PUT("/merchant/:id", middleware.RequirePerm("merchant:account:edit"), mh.update)
 	adminG.PUT("/merchant/:id/quota", middleware.RequirePerm("merchant:account:quota"), mh.updateQuota)
 	adminG.PUT("/merchant/:id/resetPwd", middleware.RequirePerm("merchant:account:resetPwd"), mh.resetPwd)
+	if d.Platform != nil {
+		ph := &platformHandler{svc: d.Platform, attr: d.Attribution, rdb: d.Rdb}
+		adminG.POST("/merchant/:id/impersonate", middleware.RequirePerm("merchant:account:impersonate"), ph.impersonate)
+		adminG.GET("/system/settings", middleware.RequirePerm("system:config:view"), ph.settings)
+		adminG.PUT("/system/settings", middleware.RequirePerm("system:config:edit"), ph.saveSettings)
+		adminG.GET("/system/nodes", middleware.RequirePerm("system:config:view"), ph.nodes)
+		adminG.GET("/template/list", middleware.RequirePerm("system:template:list"), ph.templates)
+		adminG.GET("/template/:id", middleware.RequirePerm("system:template:list"), ph.template)
+		adminG.POST("/template", middleware.RequirePerm("system:template:edit"), ph.saveTemplate)
+		adminG.PUT("/template/:id", middleware.RequirePerm("system:template:edit"), ph.saveTemplate)
+		adminG.DELETE("/template/:id", middleware.RequirePerm("system:template:edit"), ph.deleteTemplate)
+		adminG.GET("/code/list", middleware.RequirePerm("platform:code:list"), ph.codes)
+		adminG.PUT("/code/changeStatus", middleware.RequirePerm("platform:code:status"), ph.codeStatus)
+		adminG.GET("/account/list", middleware.RequirePerm("system:user:list"), ph.users)
+		adminG.POST("/account", middleware.RequirePerm("system:user:edit"), ph.createUser)
+		adminG.PUT("/account/changeStatus", middleware.RequirePerm("system:user:edit"), ph.userStatus)
+		adminG.PUT("/account/:id", middleware.RequirePerm("system:user:edit"), ph.updateUser)
+		adminG.PUT("/account/:id/resetPwd", middleware.RequirePerm("system:user:edit"), ph.resetUserPwd)
+		adminG.DELETE("/account/:id", middleware.RequirePerm("system:user:edit"), ph.deleteUser)
+		adminG.GET("/role/list", middleware.RequirePerm("system:role:list"), ph.roles)
+		adminG.POST("/role", middleware.RequirePerm("system:role:edit"), ph.createRole)
+		adminG.PUT("/role/:id", middleware.RequirePerm("system:role:edit"), ph.updateRole)
+		adminG.DELETE("/role/:id", middleware.RequirePerm("system:role:edit"), ph.deleteRole)
+		adminG.GET("/menu/list", middleware.RequirePerm("system:menu:list"), ph.menus)
+		adminG.PUT("/menu/:id", middleware.RequirePerm("system:menu:edit"), ph.updateMenu)
+	}
 
 	if d.Sites != nil {
 		sh := &siteHandler{svc: d.Sites}
@@ -247,6 +279,8 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.GET("/decision-log/list", middleware.RequirePerm("log:decision:list"), lh.list)
 		adminG.GET("/decision-log/stats", middleware.RequirePerm("log:decision:list"), lh.stats)
 		adminG.GET("/decision-log/:requestId", middleware.RequirePerm("log:decision:list"), lh.detail)
+		merchantG.GET("/api-log/list", middleware.RequirePerm("cloak:apiLog:list"), lh.apiLogs)
+		adminG.GET("/api-log/list", middleware.RequirePerm("cloak:apiLog:list"), lh.apiLogs)
 	}
 
 	uh := &userHandler{svc: d.Users}

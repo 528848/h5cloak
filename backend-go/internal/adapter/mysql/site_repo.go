@@ -283,6 +283,23 @@ func (r *SiteRepo) ListTemplates(ctx context.Context) ([]site.Template, error) {
 	return rows, err
 }
 
+func (r *SiteRepo) SaveTemplate(ctx context.Context, t *site.Template) error {
+	if t.ID == 0 {
+		return r.db.WithContext(ctx).Create(t).Error
+	}
+	return r.db.WithContext(ctx).Model(t).Select("Code", "Name", "Description", "HTML").Updates(t).Error
+}
+
+func (r *SiteRepo) TemplateInUse(ctx context.Context, id uint64) (bool, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&site.ReviewContent{}).Where("template_id = ?", id).Count(&n).Error
+	return n > 0, err
+}
+
+func (r *SiteRepo) DeleteTemplate(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&site.Template{}, id).Error
+}
+
 func (r *SiteRepo) FindTemplate(ctx context.Context, id uint64) (*site.Template, error) {
 	var t site.Template
 	err := r.db.WithContext(ctx).First(&t, id).Error

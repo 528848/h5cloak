@@ -96,6 +96,12 @@
                     重置管理员密码
                   </el-dropdown-item>
                   <el-dropdown-item
+                    v-permission="'merchant:account:impersonate'"
+                    command="impersonate"
+                  >
+                    模拟登录
+                  </el-dropdown-item>
+                  <el-dropdown-item
                     v-if="row.status !== 'enabled'"
                     v-permission="'merchant:account:status'"
                     command="enabled"
@@ -137,6 +143,7 @@
     getMerchantStats,
     updateMerchantStatus
   } from '@/api/admin/merchant';
+  import { impersonateMerchant } from '@/api/admin/platform';
   import MerchantSearch from './components/merchant-search.vue';
   import {
     merchantStatusOptions,
@@ -307,6 +314,18 @@
   };
 
   const handleCommand = (cmd, row) => {
+    if (cmd === 'impersonate') {
+      impersonateMerchant(row.merchantId)
+        .then((data) => {
+          window.open(data.url, '_blank');
+          EleMessage.success({
+            message: '已打开商户后台，链接 60 秒内有效',
+            plain: true
+          });
+        })
+        .catch((e) => EleMessage.error({ message: e.message, plain: true }));
+      return;
+    }
     if (cmd === 'quota') {
       openModal({
         custom: true,

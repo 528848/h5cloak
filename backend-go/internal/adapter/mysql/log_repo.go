@@ -211,6 +211,46 @@ func (r *LogRepo) InsertAPILogs(ctx context.Context, events []decisionlog.APILog
 	return r.db.WithContext(ctx).CreateInBatches(rows, 200).Error
 }
 
+// APILogFilter 接口日志筛选。MerchantID 为 0 表示全平台。
+type APILogFilter struct {
+	MerchantID uint64
+	SiteID     uint64
+	Endpoint   string
+	From       *time.Time
+	Page, Size int
+}
+
+// ListAPILogs 按时间倒序分页。
+func (r *LogRepo) ListAPILogs(ctx context.Context, f APILogFilter) ([]decisionlog.APILog, int64, error) {
+	q := r.db.WithContext(ctx).Model(&decisionlog.APILog{})
+	if f.MerchantID > 0 {
+		q = q.Where("merchant_id = ?", f.MerchantID)
+	}
+	if f.SiteID > 0 {
+		q = q.Where("site_id = ?", f.SiteID)
+	}
+	if f.Endpoint != "" {
+		q = q.Where("endpoint LIKE ?", "%"+f.Endpoint+"%")
+	}
+	if f.From != nil {
+		q = q.Where("created_at >= ?", *f.From)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	page, size := f.Page, f.Size
+	if page < 1 {
+		page = 1
+	}
+	if size <= 0 || size > 100 {
+		size = 20
+	}
+	var rows []decisionlog.APILog
+	err := q.Order("id DESC").Offset((page - 1) * size).Limit(size).Find(&rows).Error
+	return rows, total, err
+}
+
 // Purge 删除某商户早于 before 的决策日志，分批避免长事务；返回删除行数。
 func (r *LogRepo) Purge(ctx context.Context, merchantID uint64, before time.Time, batch int) (int64, error) {
 	var total int64

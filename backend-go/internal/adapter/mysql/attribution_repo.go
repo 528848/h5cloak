@@ -189,6 +189,15 @@ func (r *AttributionRepo) DeleteCodes(ctx context.Context, merchantID uint64, id
 }
 
 // UpdateCodesStatus 批量启停，限定商户。
+// UpdateCodesStatusPlatform 按主键改状态，不限商户。供总后台强制停用。
+func (r *AttributionRepo) UpdateCodesStatusPlatform(ctx context.Context, ids []uint64, status string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	res := r.db.WithContext(ctx).Model(&attribution.Code{}).Where("id IN ?", ids).Update("status", status)
+	return res.RowsAffected, res.Error
+}
+
 func (r *AttributionRepo) UpdateCodesStatus(ctx context.Context, merchantID uint64, ids []uint64, status string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil

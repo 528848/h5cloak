@@ -163,6 +163,19 @@ func (s *Service) EnqueueWebhook(ctx context.Context, merchantID uint64, event, 
 }
 
 func (s *Service) maxAttempts() int {
+	if s.attemptSrc != nil {
+		s.attemptMu.Lock()
+		defer s.attemptMu.Unlock()
+		if s.attemptN == 0 || time.Since(s.attemptAt) > 15*time.Second {
+			if n := s.attemptSrc(context.Background()); n > 0 {
+				s.attemptN = n
+				s.attemptAt = time.Now()
+			}
+		}
+		if s.attemptN > 0 {
+			return s.attemptN
+		}
+	}
 	if s.cfg.Webhook.MaxAttempts > 0 {
 		return s.cfg.Webhook.MaxAttempts
 	}
