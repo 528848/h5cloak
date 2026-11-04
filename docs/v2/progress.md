@@ -17,13 +17,38 @@
 | I8 | 服务端判定接口 v2 与 V1 兼容 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i8`（66ed160） |
 | I9 | 跨浏览器交接 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i9`（0d3d8e0） |
 | I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i10`（87628e6） |
-| I11 | 看板、报表、告警、Webhook | 未开始 | | | |
+| I11 | 看板、报表、告警、Webhook | 待验收 | 2026-11-04 | 2026-11-04 | 待记录 |
 | I12 | 总后台监管与系统配置 | 未开始 | | | |
 | I13 | 迁移工具与影子对比 | 未开始 | | | |
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I10 WordPress/WooCommerce 插件 v2 与 JS SDK
+## 当前迭代：I11 看板、报表、告警、Webhook
+
+- [x] 迁移 `20261104000007`：`metrics_hourly`、`code_stats_daily`、`path_stats_daily`、`alert_rules`、`alerts`、`notifications`、`notify_settings`、`webhook_endpoints`、`webhook_deliveries`、`exports`
+- [x] worker 每分钟重算近 3 小时的小时指标和当天的分销码/路径统计，启动时回补 48 小时；网关每 15 秒写节点心跳（QPS、P99、回源错误率、版本）
+- [x] 商户工作台：站点与时间范围、额度条、访问/放行/审核/拦截/校验失败/转化、按小时或按日趋势（内容、触点）、渠道与分销码排行、置信度、内置浏览器、国家、校验失败原因、接入方式、域名与源站健康
+- [x] 报表：渠道、分销码、活动码、路径、转化；聚合与原始日志对账；异步 CSV 导出，24 小时签名链接下载，篡改链接 403
+- [x] 告警：8 类默认规则（可改、可恢复默认），源站/域名/证书问题消失后自动关闭；站内、邮件、Telegram、Webhook。平台未配置 SMTP 或 Bot 时对应通道记 `skipped:not_configured`，测试按钮禁用
+- [x] Webhook：`v1=` + HMAC-SHA256(secret, `时间戳.正文`)，失败按 1 分/5 分/30 分/2 小时/6 小时重试，最多 5 次，可手动重发；页面附 Node.js / PHP / Python 验签示例
+- [x] 总后台工作台：全平台流量、网关节点、平台规模、接入方式、不可达源站、未恢复告警
+- [x] 顶栏铃铛读站内通知，未读数与「告警与通知 → 通知设置」里的最近通知一致
+- [x] 当前小时的实时日志按「替换同一小时已聚合的数」并入看板，避免重复累加
+- [x] 单测：`applyLiveHour` / `patchTrend`、Webhook 签名
+- [x] 浏览器：商户看板（演示站点 89 次访问与日志一致、近 7 日按日、触点切换）、报表对账一致、路径与转化、导出完成可下载、告警规则与站内测试通知、Webhook 测试投递成功、总后台节点卡与不可达源站
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I11 验收步骤
+
+1. 商户端打开「商户首页」，选「演示：运营看板」（或自己的有流量站点）和「今日」：访问、放行、审核与「报表 → 对账」的数字一致；点「触点」趋势改为首访/回访/交接，点「近 7 日」副标题变为「按日」。
+2. 「报表」依次看渠道、分销码、活动码、路径、转化；点「对账」应提示与原始日志一致（刚产生的流量最多差一分钟）。点「导出当前报表」，到「导出记录」刷新，状态变为已完成后下载 CSV。
+3. 把某个站点的真实源站改成一个连不上的地址并发布，一分钟内「告警与通知」出现「源站不可达」，顶栏铃铛有未读；把源站改回可访问的地址，下一分钟告警变为已恢复。
+4. 「Webhook」新增一个能收到 POST 的地址，点「测试」。用页面上的 Node/PHP/Python 示例校验 `X-Cloak-Signature`。把接收端改成返回 500 后点「重发」，投递记录应为失败，再改回 200 重发应为成功。
+5. 总后台「平台首页」能看到今日流量、至少一个网关节点（QPS / P99 / 回源错误率 / 版本）和未恢复告警。节点刚重启、最近 60 秒没有请求时 QPS 为 0。
+6. 邮件和 Telegram 需要在 `configs/admin.yaml`、`configs/worker.yaml` 的 `notify` 里填 SMTP 和 Bot。未配置时测试按钮是灰的，告警仍会写站内通知和 Webhook。
+7. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I10 WordPress/WooCommerce 插件 v2 与 JS SDK
 
 - [x] 公钥索引 `pk:{publishableKey}` 随快照发布/删除；网关 `Store.ByPublishableKey`、`Loader.ResolvePublishableKey`
 - [x] `POST /api/open/v2/js/capture`（无需签名）：公钥 + `Origin` 校验（必须是站点已绑定域名，本地开发放行 localhost/127.0.0.1）、CORS 预检、每站点限流、同一引擎判定（entry `js`）、同一日志管道；返回 content/触点/置信度/渠道/码/内置浏览器/令牌与 cookie 元数据/`handoffUrl`/`handoffBanner`，不含 renderHint
@@ -291,8 +316,8 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | T1 | 便携版 Go/MySQL/Redis 复用自 `D:\pay-virtual\.runtime`，路径写在 `scripts/dev/common.ps1` | 后续换独立安装只改该文件 |
 | T2 | 本地无 golangci-lint，门禁中跳过 | 安装后自动启用 |
 | T3 | 本地无 ClickHouse，决策日志用 MySQL（`decision_logs` 单表 + 索引，按商户保留期删除）；`LogRepo` 是唯一写入/查询入口，换 ClickHouse 只改适配器 | 测试服务器到位后接 ClickHouse，日志量大时切换 |
-| T13 | 小时聚合表 `metrics_hourly`、`code_stats_daily` 尚未建，看板与报表直接查日志表 | I11 看板时按量决定是否加聚合 |
-| T14 | ~~`api_logs` 表与流已建，开放接口在 I8 才写入~~ | I8 已写入；商户端「API 调用日志」页仍是 V1 旧页，I11 换成读 `api_logs` |
+| T13 | ~~小时聚合表尚未建，看板直接查日志~~ | I11 已建 `metrics_hourly` / `code_stats_daily` / `path_stats_daily`，worker 每分钟重算 |
+| T14 | 商户端与总后台「API 调用日志」页仍是 V1 旧页，没有改成读 `api_logs` | I12 换成 `api_logs` |
 | T15 | I8 之前创建的站点没有密钥加密副本，开放接口会返回 `secret_unavailable`，需在站点配置页重置一次密钥 | 迁移工具（I13）为 V1 导入的 Key 一并写入加密副本 |
 | T16 | V1 `ck_` 前缀 API Key 尚未映射：V1 插件要改成站点的 `sk_` 密钥才能走兼容接口 | I13 迁移时把 `api_keys` 导入为站点密钥，保留 `ck_` 前缀识别 |
 | T17 | 开放接口在网关进程内连 MySQL（分销码/日志接口）；网关多节点时每个节点都需 DB 访问 | 可接受；或 I14 把这两组接口移到 admin 域名 |
@@ -308,6 +333,12 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | T19 | JS SDK 的审核/真实内容都在页面源码里，只是切换显示；SDK 不做严格隐藏（文档已注明），`_cloak/sdk.js` 公钥模式限流只按站点 | 需要严格隐藏用服务端或托管接入；滥用时在 I12 加按 IP 限流 |
 | T20 | 插件审核页「站内页面」模式用 `WP_Query` 替换主查询渲染，整页缓存插件（WP Super Cache 等）会把首个访客的结果缓存给所有人 | readme 已提示关闭整页缓存；I13 文档补常见缓存插件的排除配置 |
 | T9 | 广告 Referer 域名表与内置浏览器 UA 特征写死在代码里 | I12 移到 `cfg:global` 由总后台维护 |
+| T21 | 本地没有 SMTP 和 Telegram Bot，邮件与 Telegram 只记 `skipped:not_configured`，页面上的测试按钮保持禁用 | 用户提供账号后写入 `notify`，再按 I11 验收步骤 6 验证真实送达 |
+| T22 | 分销码、路径报表和触点细分读聚合表，新流量最多晚一分钟；访问/放行/审核/拦截已用当前小时日志替换同一小时的聚合，避免重复计算 | 可接受；转化笔数直接读 `conversions` |
+| T23 | 本地 `configs/worker.yaml` 打开了 `notify.webhook.allow_http`，允许把 Webhook 打到 http 和内网地址。默认值是 false | 生产配置不要打开 |
+| T24 | 导出的 CSV 存在 admin 与 worker 共用的本地目录 | 多节点部署时改共享卷，与 T5/T10 同类 |
+| T25 | 告警每分钟逐个启用站点评估 | 站点变多后再批量化 |
+| T26 | 国家分布依赖 GeoIP；未配置时国家显示「未知」 | I12 或部署时配置 GeoIP 库 |
 
 ## 环境与资源
 

@@ -22,6 +22,7 @@ type Config struct {
 	Gateway   Gateway   `mapstructure:"gateway"`
 	Worker    Worker    `mapstructure:"worker"`
 	Scheduler Scheduler `mapstructure:"scheduler"`
+	Notify    Notify    `mapstructure:"notify"`
 }
 
 type App struct {
@@ -102,7 +103,38 @@ type TLS struct {
 }
 
 type Worker struct {
-	Concurrency int `mapstructure:"concurrency"`
+	Concurrency int    `mapstructure:"concurrency"`
+	ExportDir   string `mapstructure:"export_dir"` // 导出文件目录（admin 与 worker 需共享）
+}
+
+// Notify 告警通知出口（worker 使用；admin 用于「发送测试」）。
+type Notify struct {
+	SMTP     SMTP     `mapstructure:"smtp"`
+	Telegram Telegram `mapstructure:"telegram"`
+	Webhook  Webhook  `mapstructure:"webhook"`
+	// ConsoleURL 站内链接前缀（商户端地址），用于邮件/Telegram 中的跳转
+	ConsoleURL string `mapstructure:"console_url"`
+}
+
+type SMTP struct {
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Username string `mapstructure:"username"`
+	Password string `mapstructure:"password"`
+	From     string `mapstructure:"from"`
+	StartTLS bool   `mapstructure:"starttls"`
+}
+
+type Telegram struct {
+	BotToken string `mapstructure:"bot_token"`
+	APIBase  string `mapstructure:"api_base"` // 默认 https://api.telegram.org
+}
+
+// Webhook 投递策略。
+type Webhook struct {
+	Timeout     time.Duration `mapstructure:"timeout"`      // 默认 10s
+	MaxAttempts int           `mapstructure:"max_attempts"` // 默认 5
+	AllowHTTP   bool          `mapstructure:"allow_http"`   // 允许 http:// 目标（本地调试）
 }
 
 type Scheduler struct {
@@ -209,5 +241,13 @@ func setDefaults(v *viper.Viper, service string) {
 
 	v.SetDefault("gateway.entry_host", "entry.cloak.local")
 	v.SetDefault("worker.concurrency", 8)
+	v.SetDefault("worker.export_dir", "./.local/exports")
 	v.SetDefault("scheduler.lock_key", "scheduler:leader")
+	v.SetDefault("notify.smtp.port", 587)
+	v.SetDefault("notify.smtp.starttls", true)
+	v.SetDefault("notify.telegram.api_base", "https://api.telegram.org")
+	v.SetDefault("notify.webhook.timeout", "10s")
+	v.SetDefault("notify.webhook.max_attempts", 5)
+	v.SetDefault("notify.webhook.allow_http", false)
+	v.SetDefault("notify.console_url", "http://localhost:5174")
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -22,6 +23,7 @@ import (
 	"cloak/internal/pkg/httpserver"
 	"cloak/internal/pkg/secretbox"
 	"cloak/internal/pkg/tlsconf"
+	"cloak/internal/pkg/version"
 	"cloak/internal/proxy"
 	"cloak/internal/quota"
 	"cloak/internal/transport/http/gateway"
@@ -126,6 +128,32 @@ func main() {
 		openAPI = openapi.New(od)
 		rt.Log.Info("open api enabled", zap.Bool("mysql", od.Attr != nil))
 	}
+	// 节点心跳：总后台看板展示 QPS / P99 / 回源错误率 / 版本
+	if rdb != nil {
+		go func() {
+			started := time.Now().Format("2006-01-02 15:04:05")
+			tk := time.NewTicker(15 * time.Second)
+			defer tk.Stop()
+			beat := func() {
+				st := handler.Stats()
+				c, cancel := context.WithTimeout(ctx, 3*time.Second)
+				defer cancel()
+				_ = redis.Heartbeat(c, rdb, redis.NodeInfo{
+					Node: rt.Cfg.App.NodeName, Version: version.Version, Commit: version.Commit, StartedAt: started,
+					Sites: toInt(st["sites"]), QPS: toF(st["qps"]), P99Ms: toF(st["p99Ms"]), OriginErrs: toF(st["originErrorRate"]), Requests: toU(st["requests"]),
+				})
+			}
+			beat()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tk.C:
+					beat()
+				}
+			}
+		}()
+	}
 	var plain http.Handler = handler
 	if tlsProv != nil {
 		// 明文入口先交给 ACME 挑战处理器（非 ACME 模式原样返回）
@@ -147,4 +175,19 @@ func main() {
 		os.Exit(1)
 	}
 	rt.Log.Info("stopped")
+}
+
+func toF(v any) float64 {
+	f, _ := v.(float64)
+	return f
+}
+
+func toU(v any) uint64 {
+	u, _ := v.(uint64)
+	return u
+}
+
+func toInt(v any) int {
+	n, _ := v.(int)
+	return n
 }

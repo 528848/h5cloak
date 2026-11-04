@@ -11,8 +11,10 @@ import (
 	"cloak/internal/adapter/mysql"
 	"cloak/internal/adapter/redis"
 	"cloak/internal/app/bootstrap"
+	"cloak/internal/app/opssvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/pkg/httpserver"
+	"cloak/internal/quota"
 	"cloak/internal/worker/streams"
 	"cloak/internal/worker/tasks"
 )
@@ -44,6 +46,17 @@ func main() {
 	sites := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
 	go probeLoop(ctx, rt.Log, sites)
 	go tasks.NewRetention(logRepo, merchantRepo, rt.Log).Run(ctx)
+
+	// 聚合、告警、Webhook 投递、导出
+	var qc *quota.Checker
+	if rdb != nil {
+		qc = quota.New(rdb)
+	}
+	opsSvc := opssvc.New(opssvc.Deps{
+		Repo: mysql.NewOpsRepo(db), Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
+		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Log: rt.Log,
+	})
+	tasks.NewOps(opsSvc, rt.Log).Run(ctx)
 
 	if rdb != nil {
 		consumer := streams.New(rdb, logRepo, rt.Log, rt.Cfg.App.NodeName)

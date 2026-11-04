@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS exports;
+DROP TABLE IF EXISTS webhook_deliveries;
+DROP TABLE IF EXISTS webhook_endpoints;
+DROP TABLE IF EXISTS notify_settings;
+DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS alerts;
+DROP TABLE IF EXISTS alert_rules;
+DROP TABLE IF EXISTS path_stats_daily;
+DROP TABLE IF EXISTS code_stats_daily;
+DROP TABLE IF EXISTS metrics_hourly;

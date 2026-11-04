@@ -25,3 +25,11 @@ auth:
   # 本地开发密钥，生产环境必须通过 CLOAK_AUTH_JWT_SECRET 覆盖
   jwt_secret: local-dev-secret-change-me
   token_ttl: 2h
+
+worker:
+  export_dir: ./.local/exports
+
+notify:
+  console_url: http://localhost:5174
+  webhook:
+    allow_http: true

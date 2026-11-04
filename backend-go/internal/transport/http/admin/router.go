@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
+	goredis "github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	"cloak/internal/app/attrsvc"
@@ -13,6 +14,7 @@ import (
 	"cloak/internal/app/decisionsvc"
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
+	"cloak/internal/app/opssvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/app/usersvc"
@@ -40,6 +42,8 @@ type Deps struct {
 	Decision    *decisionsvc.Service
 	Publisher   *snapshotsvc.Publisher
 	Logs        *logsvc.Service
+	Ops         *opssvc.Service
+	Rdb         *goredis.Client
 	Repo        identity.MerchantRepository
 	Authn       *middleware.Authenticator
 	OpLog       *middleware.OperationLogger
@@ -106,9 +110,55 @@ func NewRouter(d Deps) *gin.Engine {
 	adminG := authed.Group("/admin", middleware.RequirePortal(identity.PortalAdmin))
 	merchantG := authed.Group("/merchant", middleware.RequirePortal(identity.PortalMerchant))
 
-	dh := &dashboardHandler{merchants: d.Merchants, repo: d.Repo}
-	adminG.GET("/dashboard", middleware.RequirePerm("admin:dashboard:view"), dh.admin)
-	merchantG.GET("/dashboard", middleware.RequirePerm("merchant:dashboard:view"), dh.merchant)
+	if d.Ops != nil {
+		oh := &opsHandler{svc: d.Ops, rdb: d.Rdb, secret: d.Cfg.Auth.JWTSecret}
+		adminG.GET("/dashboard", middleware.RequirePerm("admin:dashboard:view"), oh.adminDashboard)
+		merchantG.GET("/dashboard", middleware.RequirePerm("merchant:dashboard:view"), oh.merchantDashboard)
+		api.GET("/export/download/:token", oh.download)
+
+		merchantG.GET("/report/channel", middleware.RequirePerm("report:view"), oh.reportChannel)
+		merchantG.GET("/report/code", middleware.RequirePerm("report:view"), oh.reportCode)
+		merchantG.GET("/report/path", middleware.RequirePerm("report:view"), oh.reportPath)
+		merchantG.GET("/report/conversion", middleware.RequirePerm("report:view"), oh.reportConversion)
+		merchantG.GET("/report/reconcile", middleware.RequirePerm("report:view"), oh.reconcile)
+		merchantG.POST("/export", middleware.RequirePerm("report:export"), oh.createExport)
+		merchantG.GET("/export/list", middleware.RequirePerm("report:view"), oh.exports)
+		merchantG.GET("/export/:id/link", middleware.RequirePerm("report:view"), oh.exportLink)
+
+		merchantG.GET("/alert/rules", middleware.RequirePerm("alert:view"), oh.rules)
+		merchantG.POST("/alert/rules", middleware.RequirePerm("alert:edit"), oh.saveRule)
+		merchantG.DELETE("/alert/rules/:id", middleware.RequirePerm("alert:edit"), oh.deleteRule)
+		merchantG.GET("/alert/list", middleware.RequirePerm("alert:view"), oh.alerts)
+		merchantG.GET("/alert/stats", middleware.RequirePerm("alert:view"), oh.alertStats)
+		merchantG.POST("/alert/:id/resolve", middleware.RequirePerm("alert:edit"), oh.resolveAlert)
+		merchantG.GET("/notify/settings", middleware.RequirePerm("alert:view"), oh.notifySettings)
+		merchantG.PUT("/notify/settings", middleware.RequirePerm("alert:edit"), oh.saveNotifySettings)
+		merchantG.POST("/notify/test/:channel", middleware.RequirePerm("alert:edit"), oh.testChannel)
+		merchantG.GET("/notification/list", oh.notifications)
+		merchantG.GET("/notification/unread", oh.unread)
+		merchantG.POST("/notification/read", oh.markRead)
+
+		merchantG.GET("/webhook/list", middleware.RequirePerm("webhook:view"), oh.endpoints)
+		merchantG.POST("/webhook", middleware.RequirePerm("webhook:edit"), oh.createEndpoint)
+		merchantG.PUT("/webhook/:id", middleware.RequirePerm("webhook:edit"), oh.updateEndpoint)
+		merchantG.POST("/webhook/:id/rotate", middleware.RequirePerm("webhook:edit"), oh.rotateEndpoint)
+		merchantG.POST("/webhook/:id/test", middleware.RequirePerm("webhook:edit"), oh.testEndpoint)
+		merchantG.DELETE("/webhook/:id", middleware.RequirePerm("webhook:edit"), oh.deleteEndpoint)
+		merchantG.GET("/webhook/deliveries", middleware.RequirePerm("webhook:view"), oh.deliveries)
+		merchantG.GET("/webhook/deliveries/:id", middleware.RequirePerm("webhook:view"), oh.delivery)
+		merchantG.POST("/webhook/deliveries/:id/redeliver", middleware.RequirePerm("webhook:edit"), oh.redeliver)
+
+		adminG.GET("/alert/list", middleware.RequirePerm("admin:dashboard:view"), oh.alerts)
+		adminG.GET("/alert/stats", middleware.RequirePerm("admin:dashboard:view"), oh.alertStats)
+		adminG.POST("/alert/:id/resolve", middleware.RequirePerm("admin:dashboard:view"), oh.resolveAlert)
+		adminG.GET("/notification/list", oh.notifications)
+		adminG.GET("/notification/unread", oh.unread)
+		adminG.POST("/notification/read", oh.markRead)
+	} else {
+		dh := &dashboardHandler{merchants: d.Merchants, repo: d.Repo}
+		adminG.GET("/dashboard", middleware.RequirePerm("admin:dashboard:view"), dh.admin)
+		merchantG.GET("/dashboard", middleware.RequirePerm("merchant:dashboard:view"), dh.merchant)
+	}
 
 	mh := &merchantHandler{svc: d.Merchants}
 	adminG.GET("/merchant/list", middleware.RequirePerm("merchant:account:list"), mh.list)

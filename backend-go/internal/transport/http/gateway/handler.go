@@ -56,11 +56,12 @@ type Handler struct {
 	latency   prometheus.Histogram
 	trusted   []netip.Prefix
 	started   time.Time
+	roll      *rolling
 }
 
 // New 创建处理器并注册指标。
 func New(d Deps) *Handler {
-	h := &Handler{d: d, started: time.Now()}
+	h := &Handler{d: d, started: time.Now(), roll: newRolling()}
 	h.requests = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "gateway", Subsystem: "http", Name: "requests_total", Help: "Gateway requests by kind.",
 	}, []string{"kind"})
@@ -121,7 +122,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// 开放接口：路径命中且 Host 不是商户站点域名（入口域名、IP 或内网地址）
 	if !ok && h.d.OpenAPI != nil && openapi.Matches(r.URL.Path) {
 		h.requests.WithLabelValues("openapi").Inc()
+		start := time.Now()
 		h.d.OpenAPI.ServeHTTP(w, r)
+		h.roll.request(time.Since(start))
 		return
 	}
 	if !ok {
@@ -183,12 +186,26 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Site: site, Decision: &d, ClientIP: ipString(rc.IP), Scheme: rc.URL.Scheme, RequestID: id,
 		})
 		h.proxied.WithLabelValues(res.Kind, boolLabel(res.Fallback)).Inc()
+		if res.OriginStatus > 0 || (res.Error != "" && (res.Kind == "real" || res.Kind == "review" || res.Kind == "bypass")) {
+			h.roll.origin(res.Error != "" || res.OriginStatus >= 500)
+		}
 		if res.Error != "" {
 			h.d.Log.Warn("proxy", zap.String("request_id", id), zap.Uint64("site", site.SiteID), zap.String("kind", res.Kind),
 				zap.Int("origin_status", res.OriginStatus), zap.String("error", res.Error), zap.Bool("fallback", res.Fallback))
 		}
 	}
+	h.roll.request(time.Since(start))
 	h.emit(rc, &d, res, time.Since(start))
+}
+
+// Stats 节点运行统计（心跳与 /_cloak/status 使用）。
+func (h *Handler) Stats() map[string]any {
+	qps, p99, errRate, total := h.roll.snapshot()
+	out := map[string]any{"qps": qps, "p99Ms": p99, "originErrorRate": errRate, "requests": total, "uptimeSec": int(time.Since(h.started).Seconds())}
+	if h.d.Store != nil {
+		out["sites"] = h.d.Store.Stats().Sites
+	}
+	return out
 }
 
 // emit 把判定写入日志管道（不阻塞）。
@@ -371,7 +388,7 @@ func (h *Handler) writeDecision(w http.ResponseWriter, id string, site *snapshot
 }
 
 func (h *Handler) status(w http.ResponseWriter) {
-	out := map[string]any{"uptimeSec": int(time.Since(h.started).Seconds())}
+	out := h.Stats()
 	if h.d.Store != nil {
 		out["snapshots"] = h.d.Store.Stats()
 	}

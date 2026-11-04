@@ -16,12 +16,14 @@ import (
 	"cloak/internal/app/decisionsvc"
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
+	"cloak/internal/app/opssvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/auth"
 	"cloak/internal/pkg/httpserver"
 	"cloak/internal/pkg/secretbox"
+	"cloak/internal/quota"
 	"cloak/internal/rbac"
 	"cloak/internal/transport/http/admin"
 	"cloak/internal/transport/http/middleware"
@@ -80,7 +82,16 @@ func main() {
 		publisher.PublishMerchantAsync(ctx, mid)
 	})
 	decisionSvc := decisionsvc.New(builder, rdb)
-	logSvc := logsvc.New(mysql.NewLogRepo(db), siteRepo)
+	logRepo := mysql.NewLogRepo(db)
+	logSvc := logsvc.New(logRepo, siteRepo)
+	var qc *quota.Checker
+	if rdb != nil {
+		qc = quota.New(rdb)
+	}
+	opsSvc := opssvc.New(opssvc.Deps{
+		Repo: mysql.NewOpsRepo(db), Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
+		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Log: rt.Log,
+	})
 
 	// 启动时把全部站点快照刷一遍，保证 Redis 与数据库一致
 	if rdb != nil {
@@ -106,6 +117,8 @@ func main() {
 		Decision:    decisionSvc,
 		Publisher:   publisher,
 		Logs:        logSvc,
+		Ops:         opsSvc,
+		Rdb:         rdb,
 		Repo:        merchantRepo,
 		Authn:       middleware.NewAuthenticator(tokens, repo, rbacSvc),
 		OpLog:       middleware.NewOperationLogger(repo, rt.Log),

@@ -17,3 +17,20 @@ log:
 
 worker:
   concurrency: 8
+  export_dir: ./.local/exports
+
+# 告警通知出口。SMTP / Telegram 未配置时对应渠道自动跳过；本地允许 http Webhook 便于联调。
+notify:
+  console_url: http://localhost:5174
+  smtp:
+    host: ""
+    port: 587
+    username: ""
+    password: ""
+    from: ""
+  telegram:
+    bot_token: ""
+  webhook:
+    timeout: 10s
+    max_attempts: 5
+    allow_http: true
