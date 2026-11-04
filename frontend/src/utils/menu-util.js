@@ -1,5 +1,5 @@
 import { mapTree, isExternalLink } from 'ele-admin-plus';
-import { APP_PORTAL, PORTAL_PREFIX } from '@portal';
+import { PORTAL_PREFIX } from '@portal';
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 /** 若依默认菜单图标名称转换 */
@@ -187,17 +187,5 @@ export function formatUserMenu(userMenu) {
       hide: true
     }
   });
-  if (APP_PORTAL === 'merchant') {
-    scopedMenus.push({
-      path: '/merchant/api-key/guide',
-      component: 'merchant/api-key/guide',
-      meta: {
-        title: 'API 使用教程',
-        icon: 'IconProLinkOutlined',
-        hide: true,
-        activeMenu: '/merchant/api-key'
-      }
-    });
-  }
   return formatMenus(scopedMenus);
 }

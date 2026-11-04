@@ -19,11 +19,32 @@
 | I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i10`（87628e6） |
 | I11 | 看板、报表、告警、Webhook | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i11`（2c52ce0） |
 | I12 | 总后台监管与系统配置 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i12`（7d79f64） |
-| I13 | 迁移工具与影子对比 | 未开始 | | | |
+| I13 | 回放回归工具与 V1 清理（原「迁移工具与影子对比」，V1 未上线后收窄，见 D4） | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i13`（待填） |
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I12 总后台监管与系统配置
+## 当前迭代：I13 回放回归工具与 V1 清理
+
+V1 没有上线、没有需要保留的数据（D4），原计划的「V1 → V2 数据迁移」「与 V1 影子对比」「迁移手册」没有对象，不再做。保留并落地的是对后续仍有用的两件事：
+
+- [x] V1 清理：删除 Laravel 后端 `backend/`、本地 `_laravel_skeleton/` 与 `tools/composer.phar`；删除商户端「斗篷列表 / 访问日志 / 黑白名单 / API Key」和总后台「全部斗篷 / 斗篷日志」六个没有后端接口的 V1 页面及其 API 封装；`migrate seed` 新增 `retireMenus`，把这些菜单连同按钮与角色绑定一起从库里删掉（幂等）
+- [x] 回放回归工具 `cmd/replay`：`export` 从 `decision_logs` 导出用例（JSONL），`run` 回放到网关并输出差异报告（.md / .json）。日志里没有参数值与访客令牌，导出时按归因结果重建参数并标注 `reconstructed`，原请求被全局开关 / 额度 / 站点停用改写过的记在 `overrides`
+- [x] 差异分类：`match`、`needs_token`（回访 / 交接依赖令牌）、`global_override`、`quota_override`、`site_not_serving`、`param_reconstructed`、`host_unbound`、`transport_error`、`unexplained`；前七类为可解释差异，`unexplained` > 0 时退出码 1，可接 CI
+- [x] 干跑：回放请求带 `X-Cloak-Replay` 头（只在 `X-Cloak-Debug: decide` 下生效），网关不计额度、不写决策日志、不计入节点统计；`-record` 恢复正常记录。`-loop` / `-rate` / `-concurrency` 可作压测发生器（I14 压测复用）
+- [x] 单测：参数重建、差异分类、假网关端到端、JSONL 读写；本地回放演示站点 60 条 ×5 轮全部 `match`，唯一差异是紧急审核期间的请求，归类 `global_override` 并说明「现已解除」
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I13 验收步骤
+
+1. 商户端左侧不再有「斗篷列表 / 访问日志 / 黑白名单 / API Key」，总后台不再有「全部斗篷 / 斗篷日志」；仓库里没有 `backend/` 目录。
+2. `cd backend-go && go run ./cmd/replay export -out corpus.jsonl -site <有流量的站点> -limit 1000`，输出「exported N cases」。
+3. `go run ./cmd/replay run -in corpus.jsonl -report replay-report.md`，报告里绝大多数为 `match`；打开报告能看到每类差异的样例、原因和判定轨迹。期间商户看板的访问数不变（干跑不记日志）。
+4. 总后台打开「紧急全平台审核」再跑一次，差异全部归为 `global_override`，退出码 0；关掉后恢复。
+5. 改一个站点的某个路径规则（如把 `/lp` 设为始终审核）再跑，出现 `unexplained` 且退出码 1，报告的轨迹列显示 `path_rule=...`。改回后再跑恢复。
+6. `go run ./cmd/replay run -in corpus.jsonl -loop 50 -concurrency 16 -report load.json`，报告含吞吐与 P50 / P95 / P99。
+7. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I12 总后台监管与系统配置
 
 - [x] 迁移 `20261104000008`：`sites.platform_hold`，`system_settings` 单行配置（紧急审核、四个接入开关、日志保留上限、限流、Webhook 重试、广告 Referer、内置浏览器特征、默认路径规则）
 - [x] 全局开关走 Redis `cfg:global`：admin 保存后立即发布并推 `cfg:changed` 的 `global` 消息；网关订阅即时重载，另每 4 秒轮询兜底。紧急审核与关闭的接入只把「放行」改为「审核」并清访客令牌，bypass / 拦截 / 维护页不动，trace 记 `global => emergency_review | entry_off`
@@ -333,6 +354,8 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | D1 | 超级管理员初始账号名 | I1 | 已定：`admin` |
 | D2 | 商户默认额度 | I2 | 已定：判定 100 万/月、站点 5、域名 20、分销码 1000、子账号 10、日志 90 天 |
 | D3 | 功能开关默认值 | I2 | 已定：托管/服务端/JS SDK/转化回传/Webhook 开启，增强层关闭 |
+| D4 | V1 未上线、数据无需保留 | I13 / I14 | 已定（2026-11-04）：不做 V1 数据迁移与影子对比，I13 收窄为回放回归工具 + V1 清理；I14 的「灰度切换」改为全新上线 |
+| D5 | 是否保留 V1 兼容判定接口（`POST /api/open/decision` + `X-API-Key`、`api_v1` 入口） | I14 | 待定：V1 无存量插件，可在 I14 删除以减少接口面；保留则无额外成本 |
 
 ## 已知缺陷与技术债
 
@@ -343,8 +366,8 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | T3 | 本地无 ClickHouse，决策日志用 MySQL（`decision_logs` 单表 + 索引，按商户保留期删除）；`LogRepo` 是唯一写入/查询入口，换 ClickHouse 只改适配器 | 测试服务器到位后接 ClickHouse，日志量大时切换 |
 | T13 | ~~小时聚合表尚未建，看板直接查日志~~ | I11 已建 `metrics_hourly` / `code_stats_daily` / `path_stats_daily`，worker 每分钟重算 |
 | T14 | ~~商户端与总后台「API 调用日志」页仍是 V1 旧页，没有改成读 `api_logs`~~ | I12 已改读 `api_logs`，默认近 7 天，可按站点与接口筛选 |
-| T15 | I8 之前创建的站点没有密钥加密副本，开放接口会返回 `secret_unavailable`，需在站点配置页重置一次密钥 | 迁移工具（I13）为 V1 导入的 Key 一并写入加密副本 |
-| T16 | V1 `ck_` 前缀 API Key 尚未映射：V1 插件要改成站点的 `sk_` 密钥才能走兼容接口 | I13 迁移时把 `api_keys` 导入为站点密钥，保留 `ck_` 前缀识别 |
+| T15 | ~~I8 之前创建的站点没有密钥加密副本，开放接口会返回 `secret_unavailable`~~ | 只影响本地早期演示站点，重置一次密钥即可；无 V1 数据需要导入（D4） |
+| T16 | ~~V1 `ck_` 前缀 API Key 尚未映射~~ | 无 V1 存量 Key（D4），不再需要；是否连兼容接口一起删见 D5 |
 | T17 | 开放接口在网关进程内连 MySQL（分销码/日志接口）；网关多节点时每个节点都需 DB 访问 | 可接受；或 I14 把这两组接口移到 admin 域名 |
 | T4 | 管理 API CORS 当前放行任意 Origin，生产由 Nginx 收紧 | I14 部署时处理 |
 | T5 | 头像与审核静态包都存在本地目录，多节点部署需切对象存储 | I6 接入对象存储后切换 |
@@ -356,7 +379,10 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | T12 | ~~引导条文案与链接延续只处理原始 HTML，脚本动态生成的链接需 JS SDK 补齐~~ | I10 JS SDK 已提供引导条；SDK 暂不改写动态链接的 `_ck`（页面内跳转由 Cookie 延续） |
 | T18 | WordPress 插件 v2 只做了 `php -l` 与签名器直连网关验证，未在真实 WordPress/WooCommerce 站点跑过（本地无 WP 环境）；站内页面模式 `render_wp_page` 对部分主题/页面构建器可能需要调整 | 测试服务器到位后装 WP + Woo 按 I10 验收步骤 4–7 验证 |
 | T19 | JS SDK 的审核/真实内容都在页面源码里，只是切换显示；SDK 不做严格隐藏（文档已注明），`_cloak/sdk.js` 公钥模式限流只按站点（限额已可在系统配置热调） | 需要严格隐藏用服务端或托管接入；滥用时再加按 IP 限流 |
-| T20 | 插件审核页「站内页面」模式用 `WP_Query` 替换主查询渲染，整页缓存插件（WP Super Cache 等）会把首个访客的结果缓存给所有人 | readme 已提示关闭整页缓存；I13 文档补常见缓存插件的排除配置 |
+| T20 | 插件审核页「站内页面」模式用 `WP_Query` 替换主查询渲染，整页缓存插件（WP Super Cache 等）会把首个访客的结果缓存给所有人 | readme 已提示关闭整页缓存；I14 运行手册补常见缓存插件的排除配置 |
+| T30 | `docs/prd.md`、`docs/technical-design.md`、`docs/deploy-linux.md`、`docs/deploy-debian-bt.md` 仍是 V1（Laravel）文档 | I14 用 V2 部署与运行手册替换 |
+| T31 | 回放工具只能重建首访请求：回访 / 交接依赖令牌，报告归为 `needs_token`；参数值按归因结果重建，校验失败类请求归为 `param_reconstructed` | 可接受；需要精确回放时在网关加「记录原始查询串」的采样开关 |
+| T32 | 回放干跑仍会在引擎里签发访客令牌与写访客记录（只是不写决策日志、不计额度） | 可接受；令牌不会被使用，访客表按站点保留期清理 |
 | T9 | ~~广告 Referer 域名表与内置浏览器 UA 特征写死在代码里~~ | I12 已由总后台「系统配置」维护，经 `cfg:global` 下发；关闭自定义即恢复内置表 |
 | T27 | 全局配置依赖 Redis：Redis 不可用时网关沿用上次加载的配置（进程重启后为默认值，即不紧急审核、各入口开启） | 可接受；部署时 Redis 按高可用配置 |
 | T28 | 总后台菜单管理只能改名称、图标、排序、显示，不能新增或删除菜单；新页面随版本由 `migrate seed` 写入 | 按需再开放 |
@@ -379,4 +405,4 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | GeoLite2 账号 | 未提供（代码已接入，把 `GeoLite2-Country.mmdb` 放到 `backend-go/.local/` 即生效） | 日志国家字段 |
 | SMTP / Telegram Bot | 未提供 | I11 |
 | WordPress + WooCommerce 测试站 | 未提供 | I10 |
-| V1 数据副本 | 未提供 | I13 |
+| V1 数据副本 | 不再需要（D4） | - |

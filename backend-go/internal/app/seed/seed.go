@@ -27,6 +27,9 @@ func Run(ctx context.Context, db *gorm.DB, opt Options) error {
 		if err != nil {
 			return err
 		}
+		if err := retireMenus(tx); err != nil {
+			return err
+		}
 		menus, err := seedMenus(tx)
 		if err != nil {
 			return err
@@ -107,8 +110,6 @@ func menuDefs() []menuDef {
 		{Key: "a.param", Portal: admin, Name: "参数字典", Path: "/admin/param", Component: "admin/param", Type: "C", Perms: "attribution:param:list", Icon: "dict", Sort: 35, Visible: true, Roles: ops},
 		{Key: "a.param.edit", Parent: "a.param", Portal: admin, Name: "字典维护", Type: "F", Perms: "attribution:param:edit", Roles: ops},
 		{Key: "a.decisionLog", Portal: admin, Name: "决策日志", Path: "/admin/decision-log", Component: "admin/decision-log", Type: "C", Perms: "log:decision:list", Icon: "log", Sort: 45, Visible: true, Roles: ops},
-		{Key: "a.cloak", Portal: admin, Name: "全部斗篷", Path: "/admin/cloak", Component: "admin/cloak", Type: "C", Perms: "cloak:strategy:list", Icon: "system", Sort: 40, Visible: true, Roles: ops},
-		{Key: "a.cloakLog", Portal: admin, Name: "斗篷日志", Path: "/admin/cloak-log", Component: "admin/cloak-log", Type: "C", Perms: "cloak:log:list", Icon: "log", Sort: 50, Visible: true, Roles: ops},
 		{Key: "a.apiLog", Portal: admin, Name: "API 调用日志", Path: "/admin/api-log", Component: "admin/api-log", Type: "C", Perms: "cloak:apiLog:list", Icon: "log", Sort: 60, Visible: true, Roles: ops},
 		{Key: "a.merchant.impersonate", Parent: "a.merchant", Portal: admin, Name: "模拟登录", Type: "F", Perms: "merchant:account:impersonate", Roles: ops},
 		{Key: "a.code", Portal: admin, Name: "全平台分销码", Path: "/admin/code", Component: "admin/code", Type: "C", Perms: "platform:code:list", Icon: "dict", Sort: 32, Visible: true, Roles: ops},
@@ -154,21 +155,6 @@ func menuDefs() []menuDef {
 		{Key: "m.webhook", Portal: merchant, Name: "Webhook", Path: "/merchant/webhook", Component: "merchant/webhook", Type: "C", Perms: "webhook:view", Icon: "link", Sort: 114, Visible: true, Roles: allMerchant},
 		{Key: "m.webhook.edit", Parent: "m.webhook", Portal: merchant, Name: "Webhook 配置", Type: "F", Perms: "webhook:edit", Roles: writers},
 		{Key: "m.link", Portal: merchant, Name: "链接生成器", Path: "/merchant/link", Component: "merchant/link", Type: "C", Perms: "attribution:link:build", Icon: "link", Sort: 126, Visible: true, Roles: allMerchant},
-		{Key: "m.cloak", Portal: merchant, Name: "斗篷列表", Path: "/merchant/cloak", Component: "merchant/cloak", Type: "C", Perms: "cloak:strategy:list", Icon: "system", Sort: 130, Visible: true, Roles: allMerchant},
-		{Key: "m.cloak.add", Parent: "m.cloak", Portal: merchant, Name: "斗篷新增", Type: "F", Perms: "cloak:strategy:add", Roles: writers},
-		{Key: "m.cloak.edit", Parent: "m.cloak", Portal: merchant, Name: "斗篷编辑", Type: "F", Perms: "cloak:strategy:edit", Roles: writers},
-		{Key: "m.cloak.copy", Parent: "m.cloak", Portal: merchant, Name: "斗篷复制", Type: "F", Perms: "cloak:strategy:copy", Roles: writers},
-		{Key: "m.cloak.remove", Parent: "m.cloak", Portal: merchant, Name: "斗篷删除", Type: "F", Perms: "cloak:strategy:remove", Roles: writers},
-		{Key: "m.cloak.status", Parent: "m.cloak", Portal: merchant, Name: "斗篷状态", Type: "F", Perms: "cloak:strategy:status", Roles: writers},
-		{Key: "m.cloakLog", Portal: merchant, Name: "访问日志", Path: "/merchant/cloak-log", Component: "merchant/cloak-log", Type: "C", Perms: "cloak:log:list", Icon: "log", Sort: 140, Visible: true, Roles: allMerchant},
-		{Key: "m.accessList", Portal: merchant, Name: "黑白名单", Path: "/merchant/access-list", Component: "merchant/access-list", Type: "C", Perms: "cloak:accessList:list", Icon: "peoples", Sort: 150, Visible: true, Roles: allMerchant},
-		{Key: "m.accessList.add", Parent: "m.accessList", Portal: merchant, Name: "名单新增", Type: "F", Perms: "cloak:accessList:add", Roles: writers},
-		{Key: "m.accessList.edit", Parent: "m.accessList", Portal: merchant, Name: "名单编辑", Type: "F", Perms: "cloak:accessList:edit", Roles: writers},
-		{Key: "m.accessList.remove", Parent: "m.accessList", Portal: merchant, Name: "名单删除", Type: "F", Perms: "cloak:accessList:remove", Roles: writers},
-		{Key: "m.apiKey", Portal: merchant, Name: "API Key", Path: "/merchant/api-key", Component: "merchant/api-key", Type: "C", Perms: "cloak:apiKey:list", Icon: "link", Sort: 160, Visible: true, Roles: allMerchant},
-		{Key: "m.apiKey.add", Parent: "m.apiKey", Portal: merchant, Name: "Key新增", Type: "F", Perms: "cloak:apiKey:add", Roles: []string{identity.RoleMerchantAdmin}},
-		{Key: "m.apiKey.reset", Parent: "m.apiKey", Portal: merchant, Name: "Key重置", Type: "F", Perms: "cloak:apiKey:reset", Roles: []string{identity.RoleMerchantAdmin}},
-		{Key: "m.apiKey.remove", Parent: "m.apiKey", Portal: merchant, Name: "Key删除", Type: "F", Perms: "cloak:apiKey:remove", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.apiLog", Portal: merchant, Name: "API 调用日志", Path: "/merchant/api-log", Component: "merchant/api-log", Type: "C", Perms: "cloak:apiLog:list", Icon: "log", Sort: 170, Visible: true, Roles: allMerchant},
 		{Key: "m.user", Portal: merchant, Name: "账号管理", Path: "/merchant/user", Component: "merchant/user", Type: "C", Perms: "merchant:user:list", Icon: "user", Sort: 900, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.add", Parent: "m.user", Portal: merchant, Name: "账号新增", Type: "F", Perms: "merchant:user:add", Roles: []string{identity.RoleMerchantAdmin}},
@@ -177,6 +163,31 @@ func menuDefs() []menuDef {
 		{Key: "m.user.resetPwd", Parent: "m.user", Portal: merchant, Name: "重置密码", Type: "F", Perms: "merchant:user:resetPwd", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.remove", Parent: "m.user", Portal: merchant, Name: "账号删除", Type: "F", Perms: "merchant:user:remove", Roles: []string{identity.RoleMerchantAdmin}},
 	}
+}
+
+// retiredMenuPaths 已下线页面（V1 遗留，前端无对应页面）。seed 时连同其按钮与角色绑定一起删除。
+var retiredMenuPaths = []string{
+	"/admin/cloak", "/admin/cloak-log",
+	"/merchant/cloak", "/merchant/cloak-log", "/merchant/access-list", "/merchant/api-key",
+}
+
+func retireMenus(tx *gorm.DB) error {
+	var ids []uint64
+	if err := tx.Model(&identity.Menu{}).Where("path IN ?", retiredMenuPaths).Pluck("id", &ids).Error; err != nil {
+		return err
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var children []uint64
+	if err := tx.Model(&identity.Menu{}).Where("parent_id IN ?", ids).Pluck("id", &children).Error; err != nil {
+		return err
+	}
+	all := append(ids, children...)
+	if err := tx.Exec("DELETE FROM role_menus WHERE menu_id IN ?", all).Error; err != nil {
+		return err
+	}
+	return tx.Where("id IN ?", all).Delete(&identity.Menu{}).Error
 }
 
 func seedMenus(tx *gorm.DB) (map[string]identity.Menu, error) {

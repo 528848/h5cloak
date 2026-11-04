@@ -50,6 +50,9 @@ type Deps struct {
 // DebugDecideHeader 请求头带此值时返回判定 JSON 而非回源，供排障。
 const DebugDecideHeader = "X-Cloak-Debug"
 
+// ReplayHeader 与 DebugDecideHeader 同时出现时为回放干跑：不计额度、不写日志、不计入统计。
+const ReplayHeader = "X-Cloak-Replay"
+
 // Handler 网关主处理器。使用标准库而非 gin，为后续反向代理留出完全控制权。
 type Handler struct {
 	d         Deps
@@ -148,6 +151,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	d := h.d.Engine.Decide(r.Context(), rc)
 	h.latency.Observe(time.Since(start).Seconds())
+	// 回放干跑：只在调试模式下生效，不计额度、不写决策日志、不计入节点统计
+	dry := r.Header.Get(DebugDecideHeader) == "decide" && r.Header.Get(ReplayHeader) != ""
 
 	// 额度：bypass 不计量；超额按商户策略覆盖判定
 	quotaHit := ""
@@ -171,7 +176,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				d.Trace = append(d.Trace, engine.TraceStep{Step: "quota", Result: "over:" + quotaHit})
 			}
 		}
-		h.d.Quota.Count(site.MerchantID)
+		if !dry {
+			h.d.Quota.Count(site.MerchantID)
+		}
 	}
 	if h.d.Global != nil {
 		d.Content, d.VisitorToken, d.Trace = globalcfg.Overlay(h.d.Global.Get(), d.Content, d.VisitorToken, "hosted", d.Trace)
@@ -199,6 +206,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			h.d.Log.Warn("proxy", zap.String("request_id", id), zap.Uint64("site", site.SiteID), zap.String("kind", res.Kind),
 				zap.Int("origin_status", res.OriginStatus), zap.String("error", res.Error), zap.Bool("fallback", res.Fallback))
 		}
+	}
+	if dry {
+		return
 	}
 	h.roll.request(time.Since(start))
 	h.emit(rc, &d, res, time.Since(start))

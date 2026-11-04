@@ -7,26 +7,14 @@ frontend/node_modules/
 frontend/dist/
 frontend/.eslintcache
 
-# V1 Laravel（切换完成后整体删除）
-backend/vendor/
-backend/node_modules/
-backend/storage/framework/sessions/*
-backend/storage/framework/cache/*
-backend/storage/framework/views/*
-backend/storage/logs/*
-backend/database/database.sqlite
-backend/.env
-
 # Go
 backend-go/bin/
 backend-go/.env
 backend-go/coverage
 backend-go/coverage.out
 
-# 参考资料与脚手架，不入库
+# 参考资料，不入库
 参考代码/
-_laravel_skeleton/
-tools/composer.phar
 
 # 系统与编辑器
 .DS_Store

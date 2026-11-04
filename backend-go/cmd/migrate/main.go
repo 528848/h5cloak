@@ -4,9 +4,7 @@
 //	migrate down [n]      回滚 n 步（默认 1）
 //	migrate status        显示当前版本
 //	migrate create <name> 生成一对空迁移文件
-//	migrate seed          写入初始角色、菜单与账号（幂等）
-//
-// 后续迭代会增加 import-v1 子命令用于 V1 数据迁移。
+//	migrate seed          写入初始角色、菜单与账号，并清理已下线的菜单（幂等）
 package main
 
 import (
