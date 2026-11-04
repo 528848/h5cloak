@@ -49,6 +49,17 @@ func (l *SnapshotLoader) ResolveHost(ctx context.Context, host string) (uint64, 
 	return id, err
 }
 
+// ResolvePrefix 服务端密钥前缀 → 站点 ID。
+func (l *SnapshotLoader) ResolvePrefix(ctx context.Context, prefix string) (uint64, error) {
+	v, err := l.rdb.Get(ctx, "sk:"+prefix).Result()
+	if err != nil {
+		return 0, err
+	}
+	var id uint64
+	_, err = fmt.Sscanf(v, "%d", &id)
+	return id, err
+}
+
 // Subscribe 订阅配置变更，收到后刷新或删除对应站点。阻塞直到 ctx 结束。
 func (l *SnapshotLoader) Subscribe(ctx context.Context, store *snapshot.Store, log *zap.Logger) {
 	sub := l.rdb.Subscribe(ctx, chanChanged)

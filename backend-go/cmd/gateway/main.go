@@ -10,16 +10,22 @@ import (
 	"go.uber.org/zap"
 
 	"cloak/internal/adapter/geoip"
+	"cloak/internal/adapter/mysql"
 	"cloak/internal/adapter/redis"
+	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/bootstrap"
+	"cloak/internal/app/logsvc"
+	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/engine"
 	"cloak/internal/engine/snapshot"
 	"cloak/internal/logpipe"
 	"cloak/internal/pkg/httpserver"
+	"cloak/internal/pkg/secretbox"
 	"cloak/internal/pkg/tlsconf"
 	"cloak/internal/proxy"
 	"cloak/internal/quota"
 	"cloak/internal/transport/http/gateway"
+	"cloak/internal/transport/http/openapi"
 )
 
 func main() {
@@ -66,6 +72,19 @@ func main() {
 		}
 	}
 
+	// 开放接口：鉴权与判定只靠快照；分销码与日志接口需要 MySQL（可选）。
+	// 处理器在网关 handler 建好后再装配（需要它的 ClientIP），这里先放一个转发壳。
+	var openAPI *openapi.Handler
+	if store != nil && deps.Engine != nil {
+		deps.OpenAPI = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if openAPI == nil {
+				http.Error(w, "open api not ready", http.StatusServiceUnavailable)
+				return
+			}
+			openAPI.ServeHTTP(w, r)
+		})
+	}
+
 	// TLS：只对已绑定域名签发
 	allow := func(ctx context.Context, host string) bool {
 		if store == nil {
@@ -82,6 +101,31 @@ func main() {
 	deps.RedirectHTTPS = tlsProv != nil && rt.Cfg.Gateway.TLS.RedirectTo
 
 	handler := gateway.New(deps)
+	if deps.OpenAPI != nil {
+		box, err := secretbox.New(rt.Cfg.Auth.SecretKey)
+		if err != nil {
+			rt.Log.Error("secretbox", zap.Error(err))
+			os.Exit(1)
+		}
+		od := openapi.Deps{
+			Log: rt.Log, Auth: openapi.NewAuthenticator(store, box, rdb), Limit: openapi.NewLimiter(rdb, 0, 0),
+			Engine: deps.Engine, Pipe: pipe, Quota: deps.Quota, Geo: deps.Geo, Rdb: rdb, ClientIP: handler.ClientIP,
+		}
+		if db, err := mysql.Open(rt.Cfg.MySQL, rt.Log); err != nil {
+			rt.Log.Warn("mysql unavailable, promo-codes and decision-logs open endpoints disabled", zap.Error(err))
+		} else {
+			siteRepo := mysql.NewSiteRepo(db)
+			attrRepo := mysql.NewAttributionRepo(db)
+			merchantRepo := mysql.NewMerchantRepo(db)
+			publisher := snapshotsvc.NewPublisher(snapshotsvc.NewBuilder(siteRepo, attrRepo, merchantRepo), rdb, rt.Log)
+			attr := attrsvc.New(attrRepo, siteRepo, merchantRepo)
+			attr.OnChange(publisher.PublishAsync, nil)
+			od.Attr = attr
+			od.Logs = logsvc.New(mysql.NewLogRepo(db), siteRepo)
+		}
+		openAPI = openapi.New(od)
+		rt.Log.Info("open api enabled", zap.Bool("mysql", od.Attr != nil))
+	}
 	var plain http.Handler = handler
 	if tlsProv != nil {
 		// 明文入口先交给 ACME 挑战处理器（非 ACME 模式原样返回）

@@ -444,6 +444,21 @@ func ipPrefix(ip netip.Addr) string {
 
 func ipHash(ip netip.Addr) string { return hashValue(ipPrefix(ip)) }
 
+// VerifyToken 用站点密钥校验访客令牌，供开放接口 resolve / conversions 用。
+func VerifyToken(rc *RequestContext) (*token.Payload, bool) {
+	p, err := token.Verify(rc.Site, rc.CookieToken, rc.Now)
+	if err != nil || p == nil {
+		return nil, false
+	}
+	return p, true
+}
+
+// HashEmail 邮箱标准化后 SHA-256（小写、去空白）。
+func HashEmail(email string) string {
+	e := strings.ToLower(strings.TrimSpace(email))
+	return hex.EncodeToString(sha256Sum([]byte(e)))
+}
+
 // HashIP 导出：IP 前缀哈希（日志用，不存明文）。
 func HashIP(ip netip.Addr) string { return ipHash(ip) }
 

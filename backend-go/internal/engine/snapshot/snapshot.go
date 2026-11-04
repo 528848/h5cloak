@@ -43,6 +43,7 @@ type Site struct {
 	PublishableKey string   `json:"publishableKey"`
 	SecretPrefix   string   `json:"secretPrefix"`
 	SecretHash     string   `json:"secretHash"`
+	SecretEnc      []byte   `json:"secretEnc,omitempty"` // AES-GCM 加密的服务端密钥，网关解密后验签
 	SecretAllow    []string `json:"secretAllow"`
 
 	compiled *compiled

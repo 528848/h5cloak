@@ -1,59 +1,297 @@
-openapi: 3.1.0
+openapi: 3.0.3
 info:
-  title: 斗篷系统 V2 API
-  version: 2.0.0-dev
+  title: 斗篷系统 开放接口
+  version: "2.0"
   description: |
-    管理 API 沿用若依协议：成功 `{code:200,msg,data}`，分页 `{code:200,msg,rows,total}`。
-    开放 API v2 使用 HMAC 签名，见 docs/v2/technical-design-v2.md 第 8 章。
+    商户服务端接入接口。所有接口运行在网关域名下（托管入口域名或网关地址），路径以 `/api/open/` 开头。
+
+    ## 鉴权（v2）
+    每个站点有一把服务端密钥 `sk_...`（创建或重置时只显示一次）。请求头：
+
+    | 头 | 值 |
+    | --- | --- |
+    | `X-Cloak-Key` | 密钥前 12 位 |
+    | `X-Cloak-Timestamp` | Unix 秒，与服务器相差不超过 300 秒 |
+    | `X-Cloak-Nonce` | 8–64 位随机串，5 分钟内不可重复 |
+    | `X-Cloak-Signature` | `hex(HMAC-SHA256(secret, ts + "\n" + nonce + "\n" + METHOD + "\n" + path + "\n" + hex(sha256(body))))` |
+
+    `path` 不含查询串；GET 请求 body 为空字符串。密钥可配置 IP 白名单。限流：每密钥 50 次/秒、每站点 2000 次/分。
+
+    ## 鉴权（V1 兼容）
+    `X-API-Key: sk_...` 或 `Authorization: Bearer sk_...`，只用于 `POST /api/open/decision`。
 servers:
-  - url: http://127.0.0.1:8080/api
-    description: 本地管理 API
-  - url: http://127.0.0.1:8090/api
-    description: 本地网关开放接口
-tags:
-  - name: system
-  - name: auth
-  - name: admin
-  - name: merchant
-  - name: open
-paths:
-  /version:
-    get:
-      tags: [system]
-      summary: 服务版本
-      responses:
-        "200":
-          description: 版本信息
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Success"
+  - url: https://entry.example.com
+security:
+  - cloakSignature: []
 components:
-  schemas:
-    Success:
-      type: object
-      properties:
-        code: { type: integer, example: 200 }
-        msg: { type: string, example: 操作成功 }
-        data: {}
-    Page:
-      type: object
-      properties:
-        code: { type: integer, example: 200 }
-        msg: { type: string, example: 查询成功 }
-        rows: { type: array, items: {} }
-        total: { type: integer }
-    Error:
-      type: object
-      properties:
-        code: { type: integer }
-        msg: { type: string }
   securitySchemes:
-    bearer:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-    cloakHmac:
+    cloakSignature:
       type: apiKey
       in: header
       name: X-Cloak-Signature
+      description: 见上文签名说明；同时需要 X-Cloak-Key / X-Cloak-Timestamp / X-Cloak-Nonce。
+  schemas:
+    Envelope:
+      type: object
+      properties:
+        code: { type: integer, example: 200 }
+        msg: { type: string }
+        requestId: { type: string }
+        data: { type: object }
+    Error:
+      allOf:
+        - $ref: '#/components/schemas/Envelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              properties:
+                error:
+                  type: string
+                  enum: [missing_credentials, missing_signature, bad_timestamp, timestamp_expired, bad_nonce, bad_signature, nonce_replayed, unknown_key, invalid_api_key, site_disabled, secret_unavailable, ip_not_allowed, rate_limited, bad_request, not_found]
+    DecisionRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, description: 访客看到的完整 URL（含查询串） }
+        method: { type: string, default: GET }
+        visitorToken: { type: string, description: 访客 cookie 值（站点 cookie 名默认 _ck_vid） }
+        ip: { type: string, description: 访客 IP，不传则用调用方 IP }
+        userAgent: { type: string }
+        referer: { type: string }
+        acceptLanguage: { type: string }
+    Cookie:
+      type: object
+      properties:
+        name: { type: string, example: _ck_vid }
+        value: { type: string }
+        maxAge: { type: integer }
+        domain: { type: string }
+        path: { type: string, example: / }
+        secure: { type: boolean }
+        httpOnly: { type: boolean }
+        sameSite: { type: string, example: Lax }
+    Decision:
+      type: object
+      properties:
+        content: { type: string, enum: [real, review, block, not_found, bypass] }
+        touchType: { type: string, enum: [first, return, handoff, none] }
+        attributed: { type: boolean }
+        confidence: { type: string, enum: [high, medium, low] }
+        channel: { type: string, example: "distributor:ALICE" }
+        code:
+          type: object
+          nullable: true
+          properties:
+            id: { type: integer }
+            code: { type: string }
+            type: { type: string, enum: [distributor, campaign] }
+            name: { type: string }
+        matchedParams: { type: array, items: { type: string } }
+        validationErrors:
+          type: array
+          items:
+            type: object
+            properties:
+              param: { type: string }
+              value: { type: string }
+              reason: { type: string, enum: [not_registered, disabled, expired, not_started, path_not_allowed, format_invalid, source_not_allowed, param_disabled, click_reused] }
+        inAppBrowser:
+          type: object
+          properties:
+            detected: { type: boolean }
+            app: { type: string }
+            os: { type: string }
+            deviceFamily: { type: string }
+        handoffUrl: { type: string, description: 内置浏览器放行时给出，带 _ck 的当前 URL }
+        visitorToken: { type: string }
+        cookie: { $ref: '#/components/schemas/Cookie' }
+        attributionExpiresAt: { type: string, format: date-time }
+        renderHint:
+          type: object
+          description: content=review 时给出审核内容的渲染方式
+          properties:
+            type: { type: string, enum: [html, url, none] }
+            html: { type: string }
+            url: { type: string }
+        hostKnown: { type: boolean, description: url 的 host 是否已绑定到该站点 }
+        latencyMs: { type: integer }
+paths:
+  /api/open/v2/ping:
+    get:
+      security: []
+      summary: 探活
+      responses:
+        "200": { description: ok }
+  /api/open/v2/decision:
+    post:
+      summary: 判定一次访问应返回真实内容还是审核内容
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecisionRequest' }
+      responses:
+        "200":
+          description: 判定结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Decision' }
+        "401": { description: 鉴权失败, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "429": { description: 限流 }
+  /api/open/decision:
+    post:
+      summary: V1 兼容判定
+      description: 用 `X-API-Key` 鉴权。请求体兼容 V1 插件字段 `host/path/query/ip/userAgent`，也接受 `url`。响应 data 额外含 `page`（real/review）与 `action`（black/white）。
+      security: []
+      parameters:
+        - in: header
+          name: X-API-Key
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                host: { type: string }
+                path: { type: string }
+                query: { type: string }
+                url: { type: string }
+                ip: { type: string }
+                userAgent: { type: string }
+                visitorToken: { type: string }
+      responses:
+        "200": { description: 判定结果（含 page/action） }
+  /api/open/v2/attribution/capture:
+    post:
+      summary: 只做归因与令牌签发，不返回内容判定
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DecisionRequest' }
+      responses:
+        "200": { description: 归因结果与 cookie 指令 }
+  /api/open/v2/attribution/resolve:
+    post:
+      summary: 凭访客令牌或访客 ID 查归因
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                visitorToken: { type: string }
+                visitorId: { type: string }
+      responses:
+        "200":
+          description: 归因摘要
+          content:
+            application/json:
+              example:
+                code: 200
+                data: { visitorId: "9e942d9f75760ed2771c17cc", found: true, attributionId: "…", channel: "distributor:ALICE", codeId: 1, code: { id: 1, code: ALICE, type: distributor, name: Alice }, lastTouchType: return, lastTouchAt: "2026-11-04T12:03:14+08:00" }
+  /api/open/v2/conversions:
+    post:
+      summary: 转化回传（幂等，按 orderNo + status）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderNo]
+              properties:
+                orderNo: { type: string }
+                status: { type: string, default: paid, enum: [paid, refunded, pending] }
+                amount: { type: number }
+                currency: { type: string, default: USD }
+                visitorToken: { type: string }
+                visitorId: { type: string }
+                email: { type: string, description: 服务端会小写去空白后 SHA-256，不存明文 }
+                emailHash: { type: string, description: 已哈希的邮箱（sha256 hex） }
+                occurredAt: { type: string, format: date-time }
+      responses:
+        "202": { description: 已入队；异步关联归因、累计分销码转化、按邮箱合并访客 }
+  /api/open/v2/promo-codes:
+    get:
+      summary: 分销码列表
+      parameters:
+        - { in: query, name: keyword, schema: { type: string } }
+        - { in: query, name: type, schema: { type: string, enum: [distributor, campaign] } }
+        - { in: query, name: status, schema: { type: string, enum: [enabled, disabled, expired] } }
+        - { in: query, name: page, schema: { type: integer, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, default: 50 } }
+      responses:
+        "200": { description: rows + total }
+    post:
+      summary: 登记分销码
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string }
+                codeType: { type: string, enum: [distributor, campaign], default: distributor }
+                name: { type: string }
+                channel: { type: string }
+                status: { type: string, enum: [enabled, disabled], default: enabled }
+                startsAt: { type: string, example: "2026-11-01 00:00:00" }
+                expiresAt: { type: string }
+                allowedPaths: { type: array, items: { type: string } }
+                remark: { type: string }
+      responses:
+        "201": { description: 已登记 }
+  /api/open/v2/promo-codes/batch:
+    post:
+      summary: 批量生成
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                codeType: { type: string }
+                prefix: { type: string }
+                count: { type: integer, maximum: 10000 }
+                length: { type: integer, default: 8 }
+                channel: { type: string }
+                expiresAt: { type: string }
+      responses:
+        "201": { description: created / sample / elapsedMs }
+  /api/open/v2/promo-codes/{id}:
+    put:
+      summary: 修改分销码
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: 已修改 }
+    delete:
+      summary: 删除分销码
+      parameters: [{ in: path, name: id, required: true, schema: { type: integer } }]
+      responses:
+        "200": { description: 已删除 }
+  /api/open/v2/decision-logs:
+    get:
+      summary: 决策日志分页（默认最近 7 天）
+      parameters:
+        - { in: query, name: from, schema: { type: string, example: "2026-11-01 00:00:00" } }
+        - { in: query, name: to, schema: { type: string } }
+        - { in: query, name: path, schema: { type: string } }
+        - { in: query, name: touchType, schema: { type: string } }
+        - { in: query, name: content, schema: { type: string } }
+        - { in: query, name: code, schema: { type: string } }
+        - { in: query, name: reason, schema: { type: string } }
+        - { in: query, name: visitorId, schema: { type: string } }
+        - { in: query, name: requestId, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer } }
+        - { in: query, name: pageSize, schema: { type: integer, maximum: 200 } }
+      responses:
+        "200": { description: rows + total }

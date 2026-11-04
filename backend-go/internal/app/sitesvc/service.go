@@ -23,6 +23,7 @@ import (
 	"cloak/internal/domain/identity"
 	domainsite "cloak/internal/domain/site"
 	"cloak/internal/pkg/probe"
+	"cloak/internal/pkg/secretbox"
 )
 
 type Service struct {
@@ -31,12 +32,30 @@ type Service struct {
 	entryHost string
 	uploadDir string
 	publicURL string
+	box       *secretbox.Box // 服务端密钥加密副本，供网关 HMAC 验签
 	// changed 在站点配置写入成功后被调用（发布快照），可为 nil
 	changed func(siteID uint64)
 }
 
 // OnChange 注册配置变更回调。
 func (s *Service) OnChange(fn func(siteID uint64)) { s.changed = fn }
+
+// WithSecretBox 设置密钥加密器；未设置时不保存加密副本（开放接口签名不可用）。
+func (s *Service) WithSecretBox(b *secretbox.Box) *Service {
+	s.box = b
+	return s
+}
+
+func (s *Service) seal(sk string) []byte {
+	if s.box == nil {
+		return nil
+	}
+	enc, err := s.box.Seal([]byte(sk))
+	if err != nil {
+		return nil
+	}
+	return enc
+}
 
 func (s *Service) notify(siteID uint64) {
 	if s.changed != nil && siteID > 0 {
@@ -113,7 +132,7 @@ func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (
 		HandoffBanner: *in.HandoffBanner, HandoffBannerText: in.HandoffBannerText, HandoffLinkRewrite: *in.HandoffLinkRewrite,
 		HandoffTokenTTLHours: in.HandoffTokenTTLHours, HandoffTokenMaxUses: in.HandoffTokenMaxUses,
 		HandoffMatchEnabled: *in.HandoffMatchEnabled, HandoffMatchMinutes: in.HandoffMatchMinutes,
-		TokenKeyVersion: 1, TokenKeys: keys,
+		TokenKeyVersion: 1, TokenKeys: keys, SecretEnc: s.seal(sk),
 	}
 	review := &domainsite.ReviewContent{Source: domainsite.ReviewTemplate, TemplateVars: []byte(`{"siteName":"","slogan":""}`)}
 	if err := s.repo.CreateSite(ctx, site, domainsite.DefaultPathRules(), review); err != nil {
@@ -271,7 +290,8 @@ func (s *Service) ResetSecret(ctx context.Context, merchantID, id uint64, allow 
 	}
 	raw, _ := json.Marshal(allow)
 	site.SecretPrefix, site.SecretHash, site.SecretIPAllowlist = prefix, hash, raw
-	if err := s.repo.UpdateSite(ctx, site, "SecretPrefix", "SecretHash", "SecretIPAllowlist"); err != nil {
+	site.SecretEnc = s.seal(sk)
+	if err := s.repo.UpdateSite(ctx, site, "SecretPrefix", "SecretHash", "SecretEnc", "SecretIPAllowlist"); err != nil {
 		return "", err
 	}
 	s.notify(id)
@@ -781,6 +801,12 @@ func (s *Service) detail(ctx context.Context, site *domainsite.Site) (map[string
 		rs = append(rs, map[string]any{"pattern": rule.Pattern, "matchType": rule.MatchType, "action": rule.Action, "sort": rule.Sort, "remark": deref(rule.Remark)})
 	}
 	row["pathRules"] = rs
+	domains, _, _ := s.repo.ListDomains(ctx, 0, site.ID, "", "", 1, 100)
+	ds := []map[string]any{}
+	for i := range domains {
+		ds = append(ds, map[string]any{"domainId": domains[i].ID, "domain": domains[i].Domain, "domainType": domains[i].DomainType, "status": domains[i].Status})
+	}
+	row["domains"] = ds
 	return row, nil
 }
 

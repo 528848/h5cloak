@@ -13,8 +13,8 @@
 | I4 | 归因规则与分销码 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i4`（1278261） |
 | I5 | 配置快照与判定引擎 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i5`（960cd10） |
 | I6 | 托管反向代理与证书 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i6`（af4145d） |
-| I7 | 决策日志与归因管道 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i7`（3706736） |
-| I8 | 服务端判定接口 v2 与 V1 兼容 | 未开始 | | | |
+| I7 | 决策日志与归因管道 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i7`（3706736） |
+| I8 | 服务端判定接口 v2 与 V1 兼容 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i8` |
 | I9 | 跨浏览器交接 | 未开始 | | | |
 | I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 未开始 | | | |
 | I11 | 看板、报表、告警、Webhook | 未开始 | | | |
@@ -23,7 +23,32 @@
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I7 决策日志与归因管道
+## 当前迭代：I8 服务端判定接口 v2 与 V1 兼容
+
+- [x] 迁移 `20261104000005`：`sites.secret_enc`（AES-256-GCM 加密的服务端密钥，主密钥 `auth.secret_key`，admin 与 gateway 必须一致）、`conversions`（`(merchant_id, order_no, status)` 唯一）、`visitor_emails`
+- [x] 鉴权 `transport/http/openapi`：v2 `X-Cloak-Key`（前缀 12 位）+ `X-Cloak-Timestamp`（±300 秒）+ `X-Cloak-Nonce`（8–64 位，Redis 5 分钟防重放）+ `X-Cloak-Signature`（`HMAC-SHA256(secret, ts\nnonce\nMETHOD\npath\nsha256(body))`）；V1 `X-API-Key` / `Bearer` 常量时间比对；站点停用、密钥无加密副本、IP 白名单；两级限流每密钥 50/秒、每站点 2000/分
+- [x] 接口（运行在网关进程内，Host 不是商户站点域名时命中 `/api/open/`）：`v2/ping`、`v2/decision`（含 cookie 指令、`handoffUrl`、审核模板 `renderHint`、`hostKnown`）、`v2/attribution/capture`、`v2/attribution/resolve`（读 `attr:` 缓存）、`v2/conversions`（入流，202）、`v2/promo-codes` 列表/登记/批量/修改/删除、`v2/decision-logs`、V1 `decision`（返回 `page`/`action`/`hitRule`，兼容 `host/path/query` 字段）
+- [x] 开放接口判定走同一引擎、同一日志管道（entry `api_v2`/`api_v1`），计量与额度策略同托管入口；每次调用写 `api_logs`
+- [x] worker 转化消费：幂等写入、关联访客归因、分销码转化数 +1、邮箱哈希 → 访客映射，同邮箱多访客时把后来者归因 `merged_into_visitor_id` 指向最早访客
+- [x] 密钥前缀索引 `sk:{prefix}` 随快照发布，网关 `Store.ByPrefix`
+- [x] 文档 `backend-go/docs/openapi/openapi.yaml`；商户端「接入指南」页：选站点与语言后示例自动带入网关地址、密钥前缀、绑定域名；签名函数 + 四种场景（页面判定 / 只做归因 / 下单查归因 / 支付回传）× PHP/Node/Go/Python，V1 兼容示例，错误码表
+- [x] 单测：签名正确/过期/篡改/错密钥/未知前缀/缺头/nonce 长度、V1 Key 与 Bearer、IP 白名单、站点停用、无加密副本
+- [x] 端到端冒烟 11 组：v2 判定首访/回访/无归因 renderHint；错误签名、过期、重放、未知 key 均 401；V1 返回 `page`；capture→resolve 查到渠道与码；转化回传后码转化数 1、重复回传不重复计数；开放接口登记码后停用立即影响判定；decision-logs 可查；IP 白名单 403
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I8 验收步骤
+
+1. 商户端「接入指南」选择站点与语言，复制签名函数与场景一代码到你的服务端（或用 `backend-go/docs/openapi/openapi.yaml` 生成客户端）。密钥用站点配置页「重置服务端密钥」拿到的 `sk_...`。
+2. 调 `POST /api/open/v2/decision`，`url` 带已登记分销码：`data.content=real`、`touchType=first`、有 `cookie`；把 `cookie.value` 作为 `visitorToken` 再调一次不带参数的 URL：`touchType=return`。不带参数也不带令牌：`content=review`，`renderHint.type=html`。
+3. 把签名改错一位 → 401 `bad_signature`；时间戳减 600 → 401 `timestamp_expired`；同一 nonce 发两次 → 第二次 401 `nonce_replayed`。
+4. 旧方式 `POST /api/open/decision` + `X-API-Key: sk_...`，body 用 `host/path/query`：返回 `data.page=real|review`。
+5. `attribution/capture` 后用返回令牌调 `attribution/resolve`：`found=true`，`channel` 与 `code` 正确。
+6. `conversions` 回传同一 `orderNo` 两次：均 202，「分销码」页该码转化数只加 1。
+7. 用开放接口 `promo-codes` 登记一个码再 PUT `status=disabled`，随后判定该码返回 `review` / `disabled`。
+8. 站点密钥 IP 白名单填一个不含本机的网段后调用 → 403 `ip_not_allowed`。
+9. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I7 决策日志与归因管道
 
 - [x] 迁移 `20261104000004`：`decision_logs`（`request_id` 唯一，回放幂等）、`visitors`、`attributions`（`(site_id, visitor_id)` 唯一）、`usage_counters`、`api_logs`
 - [x] 网关 `internal/logpipe`：环形缓冲（1 万）→ 每 200ms 或 500 条批量 `XADD` 到 `decision_logs` / `attribution_writes`；Redis 写失败切到本地 WAL（`.local/wal/*.wal`，超 256MB 丢最旧），每 3 秒探测恢复后回放并删除文件；写入永不阻塞请求
@@ -48,7 +73,7 @@
 7. 总后台把演示商户判定额度改为 1、策略「全部审核」：带码访问返回审核内容，详情链路出现 `quota=over:review_all`；策略「拒绝」返回 403；恢复额度后正常。
 8. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
 
-## 上一迭代记录：I6 托管反向代理与证书
+## 更早迭代记录：I6 托管反向代理与证书
 
 - [x] `internal/proxy`：按判定回源真实站/审核站或直出模板/静态包/403/404/维护页；每源站 Transport（连接池、拨号与响应头超时、对源站不开 HTTP/2、不解压）
 - [x] 请求改写：Host 换回源 Host、追加 `X-Forwarded-*`/`X-Real-IP`、追加 `X-Cloak-Content/Touch/Visitor/Request-Id`、删除客户端伪造的 `X-Cloak-*`、源站 URL 路径前缀拼接
@@ -219,7 +244,10 @@
 | T2 | 本地无 golangci-lint，门禁中跳过 | 安装后自动启用 |
 | T3 | 本地无 ClickHouse，决策日志用 MySQL（`decision_logs` 单表 + 索引，按商户保留期删除）；`LogRepo` 是唯一写入/查询入口，换 ClickHouse 只改适配器 | 测试服务器到位后接 ClickHouse，日志量大时切换 |
 | T13 | 小时聚合表 `metrics_hourly`、`code_stats_daily` 尚未建，看板与报表直接查日志表 | I11 看板时按量决定是否加聚合 |
-| T14 | `api_logs` 表与流已建，开放接口在 I8 才写入 | I8 |
+| T14 | ~~`api_logs` 表与流已建，开放接口在 I8 才写入~~ | I8 已写入；商户端「API 调用日志」页仍是 V1 旧页，I11 换成读 `api_logs` |
+| T15 | I8 之前创建的站点没有密钥加密副本，开放接口会返回 `secret_unavailable`，需在站点配置页重置一次密钥 | 迁移工具（I13）为 V1 导入的 Key 一并写入加密副本 |
+| T16 | V1 `ck_` 前缀 API Key 尚未映射：V1 插件要改成站点的 `sk_` 密钥才能走兼容接口 | I13 迁移时把 `api_keys` 导入为站点密钥，保留 `ck_` 前缀识别 |
+| T17 | 开放接口在网关进程内连 MySQL（分销码/日志接口）；网关多节点时每个节点都需 DB 访问 | 可接受；或 I14 把这两组接口移到 admin 域名 |
 | T4 | 管理 API CORS 当前放行任意 Origin，生产由 Nginx 收紧 | I14 部署时处理 |
 | T5 | 头像与审核静态包都存在本地目录，多节点部署需切对象存储 | I6 接入对象存储后切换 |
 | T6 | 工具链固定 Go 1.23；`go get @latest` 会把 go.mod 拉到新版本，执行时需 `GOTOOLCHAIN=local` | 已在脚本中设置 |

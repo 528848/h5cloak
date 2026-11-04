@@ -20,6 +20,15 @@ func (f *fakeLoader) LoadSite(_ context.Context, id uint64) (*Site, error) {
 	return nil, errors.New("nf")
 }
 
+func (f *fakeLoader) ResolvePrefix(_ context.Context, p string) (uint64, error) {
+	for id, s := range f.sites {
+		if s.SecretPrefix == p {
+			return id, nil
+		}
+	}
+	return 0, errors.New("nf")
+}
+
 func (f *fakeLoader) ResolveHost(_ context.Context, h string) (uint64, error) {
 	if id, ok := f.hosts[h]; ok {
 		return id, nil

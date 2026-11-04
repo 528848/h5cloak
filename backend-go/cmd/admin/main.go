@@ -21,6 +21,7 @@ import (
 	"cloak/internal/app/usersvc"
 	"cloak/internal/auth"
 	"cloak/internal/pkg/httpserver"
+	"cloak/internal/pkg/secretbox"
 	"cloak/internal/rbac"
 	"cloak/internal/transport/http/admin"
 	"cloak/internal/transport/http/middleware"
@@ -52,7 +53,12 @@ func main() {
 	userSvc := usersvc.New(repo, repo, merchantRepo, tokens)
 	siteRepo := mysql.NewSiteRepo(db)
 	attrRepo := mysql.NewAttributionRepo(db)
-	siteSvc := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
+	box, err := secretbox.New(rt.Cfg.Auth.SecretKey)
+	if err != nil {
+		rt.Log.Error("secretbox", zap.Error(err))
+		os.Exit(1)
+	}
+	siteSvc := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL).WithSecretBox(box)
 	attrSvc := attrsvc.New(attrRepo, siteRepo, merchantRepo)
 
 	// 配置快照：任何站点级写操作后异步重建并发布到 Redis

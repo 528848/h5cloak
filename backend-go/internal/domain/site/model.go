@@ -59,6 +59,7 @@ type Site struct {
 	PublishableKey       string
 	SecretPrefix         string
 	SecretHash           string
+	SecretEnc            []byte `gorm:"column:secret_enc"`
 	SecretIPAllowlist    []byte `gorm:"column:secret_ip_allowlist;type:json"`
 	SecretExpiresAt      *time.Time
 	CookieName           string

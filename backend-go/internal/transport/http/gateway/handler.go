@@ -22,6 +22,7 @@ import (
 	"cloak/internal/pkg/requestid"
 	"cloak/internal/proxy"
 	"cloak/internal/quota"
+	"cloak/internal/transport/http/openapi"
 )
 
 // Deps 网关依赖。Store / Engine 为空时只提供健康检查（I0 兼容与单测）。
@@ -39,6 +40,8 @@ type Deps struct {
 	Pipe  *logpipe.Pipe
 	Quota *quota.Checker
 	Geo   geoip.Resolver
+	// OpenAPI 开放接口处理器；命中 /api/open/ 且 Host 不是已绑定站点域名时交给它
+	OpenAPI http.Handler
 }
 
 // DebugDecideHeader 请求头带此值时返回判定 JSON 而非回源，供排障。
@@ -111,6 +114,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	site, ok := h.d.Store.ByHost(r.Context(), r.Host)
+	// 开放接口：路径命中且 Host 不是商户站点域名（入口域名、IP 或内网地址）
+	if !ok && h.d.OpenAPI != nil && openapi.Matches(r.URL.Path) {
+		h.requests.WithLabelValues("openapi").Inc()
+		h.d.OpenAPI.ServeHTTP(w, r)
+		return
+	}
 	if !ok {
 		h.requests.WithLabelValues("unknown_host").Inc()
 		h.notFound(w)
@@ -270,6 +279,9 @@ func (h *Handler) requestContext(r *http.Request, site *snapshot.Site, id string
 		Now: time.Now(),
 	}
 }
+
+// ClientIP 导出给开放接口复用。
+func (h *Handler) ClientIP(r *http.Request) netip.Addr { return h.clientIP(r) }
 
 // clientIP 只在直连来源属于可信代理时信任 X-Forwarded-For。
 func (h *Handler) clientIP(r *http.Request) netip.Addr {

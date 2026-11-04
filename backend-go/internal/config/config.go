@@ -65,6 +65,7 @@ type Log struct {
 
 type Auth struct {
 	JWTSecret    string        `mapstructure:"jwt_secret"`
+	SecretKey    string        `mapstructure:"secret_key"` // 站点密钥加密主密钥，admin 与 gateway 必须一致；空则用 jwt_secret
 	TokenTTL     time.Duration `mapstructure:"token_ttl"`
 	LockAfter    int           `mapstructure:"lock_after"`
 	LockDuration time.Duration `mapstructure:"lock_duration"`
@@ -139,6 +140,9 @@ func Load(service string, searchPaths ...string) (*Config, error) {
 	if cfg.App.Name == "" {
 		cfg.App.Name = "cloak-" + service
 	}
+	if cfg.Auth.SecretKey == "" {
+		cfg.Auth.SecretKey = cfg.Auth.JWTSecret
+	}
 	return &cfg, nil
 }
 
@@ -198,6 +202,7 @@ func setDefaults(v *viper.Viper, service string) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.format", "json")
 
+	v.SetDefault("auth.jwt_secret", "local-dev-secret-change-me")
 	v.SetDefault("auth.token_ttl", "2h")
 	v.SetDefault("auth.lock_after", 5)
 	v.SetDefault("auth.lock_duration", "15m")

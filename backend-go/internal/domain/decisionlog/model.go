@@ -87,5 +87,22 @@ type APILogEvent struct {
 	IP         string    `json:"ip,omitempty"`
 }
 
+// StreamConversions 转化回传流。
+const StreamConversions = "conversions"
+
+// ConversionEvent 转化回传事件。
+type ConversionEvent struct {
+	At         time.Time `json:"t"`
+	RequestID  string    `json:"rid"`
+	MerchantID uint64    `json:"mid"`
+	SiteID     uint64    `json:"sid"`
+	OrderNo    string    `json:"order"`
+	Status     string    `json:"status"`
+	Amount     float64   `json:"amount"`
+	Currency   string    `json:"cur"`
+	VisitorID  string    `json:"vid,omitempty"`
+	EmailHash  string    `json:"eh,omitempty"`
+}
+
 // Metric 计量名。
 const MetricDecisions = "decisions"

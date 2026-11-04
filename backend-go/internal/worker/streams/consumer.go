@@ -29,6 +29,7 @@ type Stats struct {
 	Decisions    int64
 	Attributions int64
 	APILogs      int64
+	Conversions  int64
 	Errors       int64
 }
 
@@ -38,12 +39,13 @@ func New(rdb *goredis.Client, repo *mysql.LogRepo, log *zap.Logger, consumerName
 
 // Run 启动三个流的消费循环，阻塞到 ctx 结束。
 func (c *Consumer) Run(ctx context.Context) {
-	for _, s := range []string{decisionlog.StreamDecisions, decisionlog.StreamAttributions, decisionlog.StreamAPILogs} {
+	for _, s := range []string{decisionlog.StreamDecisions, decisionlog.StreamAttributions, decisionlog.StreamAPILogs, decisionlog.StreamConversions} {
 		c.ensureGroup(ctx, s)
 	}
 	go c.loop(ctx, decisionlog.StreamDecisions, 500, c.handleDecisions)
 	go c.loop(ctx, decisionlog.StreamAttributions, 200, c.handleAttributions)
 	go c.loop(ctx, decisionlog.StreamAPILogs, 500, c.handleAPILogs)
+	go c.loop(ctx, decisionlog.StreamConversions, 100, c.handleConversions)
 	<-ctx.Done()
 }
 
@@ -208,6 +210,20 @@ func (c *Consumer) handleAPILogs(ctx context.Context, msgs []goredis.XMessage) e
 		return err
 	}
 	c.stats.APILogs += int64(len(events))
+	return nil
+}
+
+func (c *Consumer) handleConversions(ctx context.Context, msgs []goredis.XMessage) error {
+	for _, m := range msgs {
+		var e decisionlog.ConversionEvent
+		if err := json.Unmarshal(payload(m), &e); err != nil || e.OrderNo == "" {
+			continue
+		}
+		if err := c.repo.ApplyConversion(ctx, &e); err != nil {
+			return err
+		}
+		c.stats.Conversions++
+	}
 	return nil
 }
 

@@ -54,7 +54,7 @@ func (b *Builder) Build(ctx context.Context, siteID uint64) (*snapshot.Site, err
 			MatchEnabled: site.HandoffMatchEnabled, MatchMinutes: site.HandoffMatchMinutes,
 		},
 		KeyVersion:     site.TokenKeyVersion,
-		PublishableKey: site.PublishableKey, SecretPrefix: site.SecretPrefix, SecretHash: site.SecretHash,
+		PublishableKey: site.PublishableKey, SecretPrefix: site.SecretPrefix, SecretHash: site.SecretHash, SecretEnc: site.SecretEnc,
 	}
 	_ = json.Unmarshal(site.TokenKeys, &out.Keys)
 	_ = json.Unmarshal(site.SecretIPAllowlist, &out.SecretAllow)

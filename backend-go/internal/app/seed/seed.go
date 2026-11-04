@@ -133,6 +133,7 @@ func menuDefs() []menuDef {
 		{Key: "m.code.export", Parent: "m.code", Portal: merchant, Name: "分销码导出", Type: "F", Perms: "attribution:code:export", Roles: allMerchant},
 		{Key: "m.decisionTest", Portal: merchant, Name: "判定测试", Path: "/merchant/decision-test", Component: "merchant/decision-test", Type: "C", Perms: "attribution:test:run", Icon: "search", Sort: 128, Visible: true, Roles: allMerchant},
 		{Key: "m.decisionLog", Portal: merchant, Name: "决策日志", Path: "/merchant/decision-log", Component: "merchant/decision-log", Type: "C", Perms: "log:decision:list", Icon: "log", Sort: 127, Visible: true, Roles: allMerchant},
+		{Key: "m.apiGuide", Portal: merchant, Name: "接入指南", Path: "/merchant/api-guide", Component: "merchant/api-guide", Type: "C", Perms: "site:site:list", Icon: "guide", Sort: 129, Visible: true, Roles: allMerchant},
 		{Key: "m.link", Portal: merchant, Name: "链接生成器", Path: "/merchant/link", Component: "merchant/link", Type: "C", Perms: "attribution:link:build", Icon: "link", Sort: 126, Visible: true, Roles: allMerchant},
 		{Key: "m.cloak", Portal: merchant, Name: "斗篷列表", Path: "/merchant/cloak", Component: "merchant/cloak", Type: "C", Perms: "cloak:strategy:list", Icon: "system", Sort: 130, Visible: true, Roles: allMerchant},
 		{Key: "m.cloak.add", Parent: "m.cloak", Portal: merchant, Name: "斗篷新增", Type: "F", Perms: "cloak:strategy:add", Roles: writers},

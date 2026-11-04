@@ -21,6 +21,10 @@ log:
   level: debug
   format: console
 
+auth:
+  # 站点密钥加密主密钥，须与 admin 的 auth.secret_key / jwt_secret 一致
+  jwt_secret: local-dev-secret-change-me
+
 gateway:
   trusted_proxies:
     - 127.0.0.1/32

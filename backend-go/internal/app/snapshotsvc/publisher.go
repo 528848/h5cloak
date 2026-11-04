@@ -17,10 +17,11 @@ import (
 
 // Redis key
 const (
-	KeySitePrefix = "cfg:site:"
-	KeyHostPrefix = "host:"
-	KeySiteIndex  = "cfg:sites"
-	ChanChanged   = "cfg:changed"
+	KeySitePrefix   = "cfg:site:"
+	KeyHostPrefix   = "host:"
+	KeyPrefixPrefix = "sk:"
+	KeySiteIndex    = "cfg:sites"
+	ChanChanged     = "cfg:changed"
 )
 
 // Publisher 构建并发布快照。rdb 为 nil 时只构建不发布（本地无 Redis）。
@@ -60,6 +61,14 @@ func (p *Publisher) Publish(ctx context.Context, siteID uint64) error {
 		pipe.Del(ctx, KeyHostPrefix+h)
 	}
 	pipe.Del(ctx, "cfg:site:"+itoa(siteID)+":hosts")
+	// 密钥前缀索引（开放接口按前缀找站点）
+	if old, _ := p.rdb.Get(ctx, "cfg:site:"+itoa(siteID)+":prefix").Result(); old != "" && old != snap.SecretPrefix {
+		pipe.Del(ctx, KeyPrefixPrefix+old)
+	}
+	if snap.SecretPrefix != "" {
+		pipe.Set(ctx, KeyPrefixPrefix+snap.SecretPrefix, itoa(siteID), 0)
+		pipe.Set(ctx, "cfg:site:"+itoa(siteID)+":prefix", snap.SecretPrefix, 0)
+	}
 	for _, d := range snap.Domains {
 		if d.Status == "bound" {
 			pipe.Set(ctx, KeyHostPrefix+d.Domain, itoa(siteID), 0)
@@ -81,11 +90,15 @@ func (p *Publisher) Remove(ctx context.Context, siteID uint64) error {
 		return nil
 	}
 	hosts, _ := p.rdb.SMembers(ctx, "cfg:site:"+itoa(siteID)+":hosts").Result()
+	prefix, _ := p.rdb.Get(ctx, "cfg:site:"+itoa(siteID)+":prefix").Result()
 	pipe := p.rdb.Pipeline()
 	for _, h := range hosts {
 		pipe.Del(ctx, KeyHostPrefix+h)
 	}
-	pipe.Del(ctx, "cfg:site:"+itoa(siteID)+":hosts", KeySitePrefix+itoa(siteID))
+	if prefix != "" {
+		pipe.Del(ctx, KeyPrefixPrefix+prefix)
+	}
+	pipe.Del(ctx, "cfg:site:"+itoa(siteID)+":hosts", "cfg:site:"+itoa(siteID)+":prefix", KeySitePrefix+itoa(siteID))
 	pipe.SRem(ctx, KeySiteIndex, itoa(siteID))
 	pipe.Publish(ctx, ChanChanged, "site:"+itoa(siteID)+":deleted")
 	_, err := pipe.Exec(ctx)

@@ -38,6 +38,11 @@ func (c *templateCache) render(site *snapshot.Site) ([]byte, error) {
 	return out, err
 }
 
+// RenderTemplate 导出：渲染审核模板（开放接口 renderHint 用）。
+func RenderTemplate(src string, vars map[string]string) ([]byte, error) {
+	return renderTemplate(src, vars)
+}
+
 func renderTemplate(src string, vars map[string]string) ([]byte, error) {
 	if src == "" {
 		src = defaultReviewHTML

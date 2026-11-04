@@ -117,6 +117,62 @@ func (r *LogRepo) ApplyAttribution(ctx context.Context, w *decisionlog.Attributi
 	})
 }
 
+// ApplyConversion 写转化（幂等），关联归因，累计分销码转化数，并按邮箱哈希合并访客。
+func (r *LogRepo) ApplyConversion(ctx context.Context, e *decisionlog.ConversionEvent) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var attrID, channel string
+		var codeID uint64
+		vid := e.VisitorID
+		// 没有访客 ID 但有邮箱哈希：找同邮箱已知访客
+		if vid == "" && e.EmailHash != "" {
+			var ve struct{ VisitorID string }
+			if err := tx.Table("visitor_emails").Select("visitor_id").
+				Where("site_id = ? AND email_hash = ?", e.SiteID, e.EmailHash).Order("first_seen_at").Limit(1).Scan(&ve).Error; err == nil {
+				vid = ve.VisitorID
+			}
+		}
+		if vid != "" {
+			var a decisionlog.Attribution
+			if err := tx.Where("site_id = ? AND visitor_id = ?", e.SiteID, vid).First(&a).Error; err == nil {
+				attrID, channel, codeID = a.AttributionID, a.LastChannel, a.LastCodeID
+				if codeID == 0 {
+					codeID = a.FirstCodeID
+				}
+			}
+		}
+		res := tx.Exec(`INSERT IGNORE INTO conversions
+			(merchant_id, site_id, order_no, status, amount, currency, visitor_id, attribution_id, code_id, channel, email_hash, occurred_at, request_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			e.MerchantID, e.SiteID, e.OrderNo, e.Status, e.Amount, e.Currency, vid, attrID, codeID, channel, e.EmailHash, e.At, e.RequestID)
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil // 重复回传
+		}
+		if codeID > 0 && e.Status == "paid" {
+			if err := tx.Exec("UPDATE promo_codes SET conversion_count = conversion_count + 1 WHERE id = ?", codeID).Error; err != nil {
+				return err
+			}
+		}
+		// 邮箱 → 访客映射；若同邮箱已有其它访客，把当前访客的归因合并到最早的那个
+		if e.EmailHash != "" && vid != "" {
+			if err := tx.Exec("INSERT IGNORE INTO visitor_emails (site_id, email_hash, visitor_id, first_seen_at) VALUES (?, ?, ?, ?)",
+				e.SiteID, e.EmailHash, vid, e.At).Error; err != nil {
+				return err
+			}
+			var primary struct{ VisitorID string }
+			if err := tx.Table("visitor_emails").Select("visitor_id").
+				Where("site_id = ? AND email_hash = ?", e.SiteID, e.EmailHash).Order("first_seen_at").Limit(1).Scan(&primary).Error; err == nil &&
+				primary.VisitorID != "" && primary.VisitorID != vid {
+				_ = tx.Exec("UPDATE attributions SET merged_into_visitor_id = ? WHERE site_id = ? AND visitor_id = ? AND merged_into_visitor_id IS NULL",
+					primary.VisitorID, e.SiteID, vid).Error
+			}
+		}
+		return nil
+	})
+}
+
 // AddUsage 月度计量累加。
 func (r *LogRepo) AddUsage(ctx context.Context, merchantID uint64, metric, period string, delta uint64) error {
 	if delta == 0 {
