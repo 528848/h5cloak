@@ -1,183 +1,184 @@
 <template>
-  <ele-page flex-table="auto">
-    <ele-card :body-style="{ paddingTop: '8px' }" flex-table="auto">
-      <div style="margin-bottom: 12px">
-        <el-button
-          v-permission="'system:role:edit'"
-          type="primary"
-          @click="open()"
-          >新建角色</el-button
-        >
-      </div>
-      <el-table :data="rows" border>
-        <el-table-column prop="name" label="名称" min-width="140" />
-        <el-table-column prop="roleKey" label="标识" min-width="140" />
-        <el-table-column label="类型" width="90">
-          <template #default="{ row }">{{
-            row.builtin ? '内置' : '自定义'
-          }}</template>
-        </el-table-column>
-        <el-table-column label="可见菜单" width="100">
-          <template #default="{ row }">{{
-            row.roleKey === 'admin' ? '全部' : (row.menuIds || []).length
-          }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="90">
-          <template #default="{ row }">{{
-            row.status === 'enabled' ? '启用' : '停用'
-          }}</template>
-        </el-table-column>
-        <el-table-column prop="remark" label="备注" min-width="140" />
-        <el-table-column label="操作" width="140">
-          <template #default="{ row }">
-            <el-button
-              v-permission="'system:role:edit'"
-              link
-              type="primary"
-              @click="open(row)"
-              >编辑</el-button
-            >
-            <el-button
-              v-if="!row.builtin"
-              v-permission="'system:role:edit'"
-              link
-              type="danger"
-              @click="remove(row)"
-              >删除</el-button
-            >
-          </template>
-        </el-table-column>
-      </el-table>
-    </ele-card>
-    <el-dialog
-      v-model="visible"
-      :title="form.roleId ? '编辑角色' : '新建角色'"
-      width="560px"
-    >
-      <el-form label-width="72px">
-        <el-form-item label="名称"
-          ><el-input v-model="form.name"
-        /></el-form-item>
-        <el-form-item label="标识"
-          ><el-input v-model="form.roleKey" :disabled="!!form.roleId"
-        /></el-form-item>
-        <el-form-item label="备注"
-          ><el-input v-model="form.remark"
-        /></el-form-item>
-        <el-form-item label="菜单">
-          <el-tree
-            ref="treeRef"
-            :data="tree"
-            show-checkbox
-            node-key="menuId"
-            default-expand-all
-            :props="{ label: 'name', children: 'children' }"
+  <ele-page>
+    <role-search @search="(where) => reload(where)" />
+    <ele-card :body-style="{ paddingTop: '8px' }">
+      <ele-pro-table
+        ref="tableRef"
+        row-key="roleId"
+        :columns="columns"
+        :datasource="datasource"
+        :pagination="false"
+        :show-overflow-tooltip="true"
+        :highlight-current-row="true"
+        v-model:selections="selections"
+        cache-key="adminRoleTable"
+      >
+        <template #toolbar>
+          <btn-items
+            :items="[
+              {
+                preset: 'add',
+                permission: 'system:role:edit',
+                onClick: () => handleEdit()
+              },
+              {
+                preset: 'del',
+                permission: 'system:role:edit',
+                onClick: () => handleRemove()
+              }
+            ]"
           />
-          <div class="hint"
-            >超级管理员始终可见全部菜单，勾选只影响其他角色。</div
-          >
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="visible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submit"
-          >保存</el-button
-        >
-      </template>
-    </el-dialog>
+        </template>
+        <template #status="{ row }">
+          <el-switch
+            size="small"
+            :model-value="row.status === 'enabled'"
+            :disabled="row.builtin"
+            @change="(checked) => handleStatus(checked, row)"
+          />
+        </template>
+        <template #action="{ row }">
+          <btn-items
+            divider
+            type="link"
+            :items="[
+              {
+                preset: 'edit',
+                permission: 'system:role:edit',
+                onClick: () => handleEdit(row)
+              },
+              {
+                preset: 'del',
+                permission: 'system:role:edit',
+                props: { disabled: row.builtin },
+                onClick: () => handleRemove(row)
+              }
+            ]"
+          />
+        </template>
+      </ele-pro-table>
+    </ele-card>
   </ele-page>
 </template>
 
 <script setup>
-  import { nextTick, reactive, ref } from 'vue';
+  import { ref } from 'vue';
   import { ElMessageBox } from 'element-plus';
-  import { EleMessage } from 'ele-admin-plus';
-  import {
-    listMenus,
-    listRoles,
-    removeRole,
-    saveRole
-  } from '@/api/admin/platform';
+  import { EleMessage, useModal } from 'ele-admin-plus';
+  import RoleSearch from './components/role-search.vue';
+  import { listRoles, removeRole, saveRole } from '@/api/admin/platform';
 
   defineOptions({ name: 'AdminRole' });
 
-  const rows = ref([]);
-  const tree = ref([]);
-  const flat = ref([]);
-  const visible = ref(false);
-  const saving = ref(false);
-  const treeRef = ref(null);
-  const form = reactive({
-    roleId: 0,
-    name: '',
-    roleKey: '',
-    remark: '',
-    status: 'enabled'
-  });
+  const { openModal } = useModal();
+  const tableRef = ref(null);
+  const selections = ref([]);
+  const whereRef = ref({});
 
-  const load = async () => {
-    rows.value = (await listRoles()) || [];
-    flat.value = (await listMenus()) || [];
-    const byParent = {};
-    flat.value.forEach((m) => {
-      const pid = m.parentId || 0;
-      (byParent[pid] ||= []).push({ ...m, children: [] });
-    });
-    const attach = (nodes) =>
-      nodes.map((n) => {
-        n.children = attach(byParent[n.menuId] || []);
-        return n;
-      });
-    tree.value = attach(byParent[0] || []);
-  };
-
-  const open = async (row) => {
-    Object.assign(form, {
-      roleId: row?.roleId || 0,
-      name: row?.name || '',
-      roleKey: row?.roleKey || '',
-      remark: row?.remark || '',
-      status: row?.status || 'enabled'
-    });
-    visible.value = true;
-    await nextTick();
-    treeRef.value?.setCheckedKeys?.(row?.menuIds || []);
-  };
-
-  const submit = async () => {
-    saving.value = true;
-    try {
-      const menuIds = treeRef.value?.getCheckedKeys?.(false) || [];
-      const half = treeRef.value?.getHalfCheckedKeys?.() || [];
-      await saveRole(form.roleId, { ...form, menuIds: [...menuIds, ...half] });
-      EleMessage.success({ message: '已保存', plain: true });
-      visible.value = false;
-      await load();
-    } catch (e) {
-      EleMessage.error({ message: e.message, plain: true });
-    } finally {
-      saving.value = false;
+  const columns = ref([
+    {
+      type: 'selection',
+      columnKey: 'selection',
+      width: 50,
+      align: 'center',
+      selectable: (row) => !row.builtin
+    },
+    { type: 'index', columnKey: 'index', width: 50, align: 'center' },
+    { prop: 'name', label: '角色名称', minWidth: 140 },
+    { prop: 'roleKey', label: '权限字符', minWidth: 140 },
+    {
+      prop: 'builtin',
+      label: '类型',
+      width: 90,
+      align: 'center',
+      formatter: (row) => (row.builtin ? '内置' : '自定义')
+    },
+    {
+      columnKey: 'menus',
+      label: '菜单',
+      width: 90,
+      align: 'center',
+      formatter: (row) =>
+        row.roleKey === 'admin' ? '全部' : (row.menuIds || []).length
+    },
+    {
+      prop: 'status',
+      label: '状态',
+      width: 90,
+      align: 'center',
+      slot: 'status'
+    },
+    { prop: 'remark', label: '备注', minWidth: 160 },
+    {
+      columnKey: 'action',
+      label: '操作',
+      width: 140,
+      align: 'center',
+      slot: 'action'
     }
+  ]);
+
+  const datasource = async ({ where }) => {
+    whereRef.value = where || {};
+    const rows = (await listRoles()) || [];
+    return rows.filter((r) => {
+      if (where?.name && !`${r.name}`.includes(where.name)) {
+        return false;
+      }
+      if (where?.roleKey && !`${r.roleKey}`.includes(where.roleKey)) {
+        return false;
+      }
+      if (where?.status && r.status !== where.status) {
+        return false;
+      }
+      return true;
+    });
   };
 
-  const remove = (row) => {
-    ElMessageBox.confirm(`删除角色「${row.name}」？`, '系统提示', {
-      type: 'warning'
-    })
+  const reload = (where) => tableRef.value?.reload?.({ where });
+
+  const handleEdit = (row) => {
+    openModal({
+      custom: true,
+      asyncComponent: () => import('./components/role-edit.vue'),
+      componentProps: { data: row, onDone: () => reload(whereRef.value) }
+    });
+  };
+
+  const handleStatus = (checked, row) => {
+    const status = checked ? 'enabled' : 'disabled';
+    ElMessageBox.confirm(
+      `确认要${checked ? '启用' : '停用'}角色「${row.name}」吗？`,
+      '系统提示',
+      { type: 'warning', draggable: true }
+    )
       .then(async () => {
-        await removeRole(row.roleId);
-        EleMessage.success({ message: '已删除', plain: true });
-        await load();
+        await saveRole(row.roleId, { ...row, status });
+        EleMessage.success({ message: '状态已更新', plain: true });
+        reload(whereRef.value);
       })
       .catch(() => {});
   };
 
-  load().catch((e) => EleMessage.error({ message: e.message, plain: true }));
+  const handleRemove = (row) => {
+    const rows = row == null ? selections.value : [row];
+    if (!rows.length) {
+      EleMessage.error({ message: '请至少选择一条数据', plain: true });
+      return;
+    }
+    ElMessageBox.confirm(
+      `是否确认删除角色「${rows.map((d) => d.name).join('、')}」？`,
+      '系统提示',
+      { type: 'warning', draggable: true }
+    )
+      .then(async () => {
+        for (const item of rows) {
+          await removeRole(item.roleId);
+        }
+        EleMessage.success({ message: '删除成功', plain: true });
+        selections.value = [];
+        reload(whereRef.value);
+      })
+      .catch(() => {});
+  };
 </script>
-
-<style scoped>
-  .hint {
-    color: var(--el-text-color-secondary);
-    font-size: 12px;
-  }
-</style>

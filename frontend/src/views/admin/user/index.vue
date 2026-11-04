@@ -1,169 +1,164 @@
 <template>
-  <ele-page flex-table="auto">
-    <ele-card :body-style="{ paddingTop: '8px' }" flex-table="auto">
+  <ele-page>
+    <user-search @search="(where) => reload(where, 1)" />
+    <ele-card :body-style="{ paddingTop: '8px' }">
       <ele-pro-table
         ref="tableRef"
         row-key="userId"
         :columns="columns"
         :datasource="datasource"
+        :show-overflow-tooltip="true"
+        :highlight-current-row="true"
+        v-model:selections="selections"
         cache-key="adminAccountTable"
       >
         <template #toolbar>
-          <el-button
-            v-permission="'system:user:edit'"
-            type="primary"
-            @click="open()"
-            >新建管理员</el-button
-          >
+          <btn-items
+            :items="[
+              {
+                preset: 'add',
+                permission: 'system:user:edit',
+                onClick: () => handleEdit()
+              },
+              {
+                preset: 'del',
+                permission: 'system:user:edit',
+                onClick: () => handleRemove()
+              }
+            ]"
+          />
         </template>
-        <template #roles="{ row }">{{
-          (row.roleNames || []).join('、')
-        }}</template>
+        <template #status="{ row }">
+          <el-switch
+            size="small"
+            :model-value="row.status === 'enabled'"
+            :disabled="row.userName === 'admin'"
+            @change="(checked) => handleStatus(checked, row)"
+          />
+        </template>
+        <template #roles="{ row }">
+          <el-tag
+            v-for="name in row.roleNames || []"
+            :key="name"
+            size="small"
+            effect="plain"
+            style="margin-right: 4px"
+          >
+            {{ name }}
+          </el-tag>
+        </template>
         <template #action="{ row }">
-          <el-button
-            v-permission="'system:user:edit'"
-            link
-            type="primary"
-            @click="open(row)"
-            >编辑</el-button
-          >
-          <el-button
-            v-permission="'system:user:edit'"
-            link
-            type="primary"
-            @click="resetPwd(row)"
-            >重置密码</el-button
-          >
-          <el-button
-            v-permission="'system:user:edit'"
-            link
-            type="danger"
-            @click="remove(row)"
-            >删除</el-button
-          >
+          <btn-items
+            divider
+            type="link"
+            :items="[
+              {
+                preset: 'edit',
+                permission: 'system:user:edit',
+                onClick: () => handleEdit(row)
+              },
+              {
+                title: '重置密码',
+                permission: 'system:user:edit',
+                onClick: () => handleResetPwd(row)
+              },
+              {
+                preset: 'del',
+                permission: 'system:user:edit',
+                props: { disabled: row.userName === 'admin' },
+                onClick: () => handleRemove(row)
+              }
+            ]"
+          />
         </template>
       </ele-pro-table>
     </ele-card>
-    <el-dialog
-      v-model="visible"
-      :title="form.userId ? '编辑管理员' : '新建管理员'"
-      width="480px"
-    >
-      <el-form label-width="72px">
-        <el-form-item label="账号"
-          ><el-input v-model="form.userName" :disabled="!!form.userId"
-        /></el-form-item>
-        <el-form-item v-if="!form.userId" label="密码"
-          ><el-input v-model="form.password" show-password
-        /></el-form-item>
-        <el-form-item label="昵称"
-          ><el-input v-model="form.nickName"
-        /></el-form-item>
-        <el-form-item label="角色">
-          <el-select v-model="form.roleIds" multiple style="width: 100%">
-            <el-option
-              v-for="r in roles"
-              :key="r.roleId"
-              :label="r.name"
-              :value="r.roleId"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-radio-group v-model="form.status">
-            <el-radio value="enabled" label="enabled">启用</el-radio>
-            <el-radio value="disabled" label="disabled">停用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="备注"
-          ><el-input v-model="form.remark"
-        /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="visible = false">取消</el-button>
-        <el-button type="primary" :loading="saving" @click="submit"
-          >保存</el-button
-        >
-      </template>
-    </el-dialog>
   </ele-page>
 </template>
 
 <script setup>
-  import { reactive, ref } from 'vue';
+  import { ref } from 'vue';
   import { ElMessageBox } from 'element-plus';
-  import { EleMessage } from 'ele-admin-plus';
+  import { EleMessage, useModal } from 'ele-admin-plus';
+  import UserSearch from './components/user-search.vue';
   import {
-    listRoles,
     pageAccounts,
     removeAccount,
     resetAccountPassword,
-    saveAccount
+    updateAccountStatus
   } from '@/api/admin/platform';
 
   defineOptions({ name: 'AdminAccount' });
 
+  const { openModal } = useModal();
   const tableRef = ref(null);
-  const visible = ref(false);
-  const saving = ref(false);
-  const roles = ref([]);
-  const form = reactive({
-    userId: 0,
-    userName: '',
-    password: '',
-    nickName: '',
-    roleIds: [],
-    status: 'enabled',
-    remark: ''
-  });
-  const columns = [
-    { prop: 'userName', label: '账号', minWidth: 120 },
-    { prop: 'nickName', label: '昵称', minWidth: 120 },
-    { prop: 'roleNames', label: '角色', minWidth: 160, slot: 'roles' },
+  const selections = ref([]);
+
+  const columns = ref([
+    { type: 'selection', columnKey: 'selection', width: 50, align: 'center' },
+    { type: 'index', columnKey: 'index', width: 50, align: 'center' },
+    { prop: 'userName', label: '用户名称', minWidth: 120 },
+    { prop: 'nickName', label: '用户昵称', minWidth: 120 },
+    {
+      prop: 'roleNames',
+      label: '角色',
+      minWidth: 160,
+      slot: 'roles'
+    },
     {
       prop: 'status',
       label: '状态',
       width: 90,
-      formatter: (row) => (row.status === 'enabled' ? '启用' : '停用')
+      align: 'center',
+      slot: 'status'
     },
-    { prop: 'createdAt', label: '创建时间', width: 170 },
-    { columnKey: 'action', label: '操作', width: 200, slot: 'action' }
-  ];
+    { prop: 'createdAt', label: '创建时间', width: 170, align: 'center' },
+    {
+      columnKey: 'action',
+      label: '操作',
+      width: 220,
+      align: 'center',
+      slot: 'action',
+      hideInPrint: true,
+      hideInExport: true
+    }
+  ]);
 
   const datasource = ({ page, limit, where }) =>
     pageAccounts({ ...where, pageNum: page, pageSize: limit });
 
-  const open = async (row) => {
-    roles.value = (await listRoles()) || [];
-    Object.assign(form, {
-      userId: row?.userId || 0,
-      userName: row?.userName || '',
-      password: '',
-      nickName: row?.nickName || '',
-      roleIds: row?.roleIds ? [...row.roleIds] : [],
-      status: row?.status || 'enabled',
-      remark: row?.remark || ''
+  const reload = (where, page) => {
+    tableRef.value?.reload?.({ where, page });
+  };
+
+  const handleEdit = (row) => {
+    openModal({
+      custom: true,
+      asyncComponent: () => import('./components/user-edit.vue'),
+      componentProps: { data: row, onDone: () => reload() }
     });
-    visible.value = true;
   };
 
-  const submit = async () => {
-    saving.value = true;
-    try {
-      await saveAccount(form.userId, form);
-      EleMessage.success({ message: '已保存', plain: true });
-      visible.value = false;
-      tableRef.value?.reload?.();
-    } catch (e) {
-      EleMessage.error({ message: e.message, plain: true });
-    } finally {
-      saving.value = false;
-    }
+  const handleStatus = (checked, row) => {
+    const status = checked ? 'enabled' : 'disabled';
+    const text = checked ? '启用' : '停用';
+    ElMessageBox.confirm(`确认要${text}「${row.userName}」吗？`, '系统提示', {
+      type: 'warning',
+      draggable: true
+    })
+      .then(async () => {
+        const msg = await updateAccountStatus(row.userId, status);
+        EleMessage.success({ message: msg, plain: true });
+        reload();
+      })
+      .catch(() => {});
   };
 
-  const resetPwd = (row) => {
-    ElMessageBox.prompt(`为「${row.userName}」设置新密码`, '重置密码', {
-      inputType: 'password'
+  const handleResetPwd = (row) => {
+    ElMessageBox.prompt(`请输入「${row.userName}」的新密码`, '重置密码', {
+      inputType: 'password',
+      inputPlaceholder: '至少 6 位',
+      draggable: true
     })
       .then(async ({ value }) => {
         const msg = await resetAccountPassword(row.userId, value);
@@ -172,14 +167,24 @@
       .catch(() => {});
   };
 
-  const remove = (row) => {
-    ElMessageBox.confirm(`删除管理员「${row.userName}」？`, '系统提示', {
-      type: 'warning'
+  const handleRemove = (row) => {
+    const rows = row == null ? selections.value : [row];
+    if (!rows.length) {
+      EleMessage.error({ message: '请至少选择一条数据', plain: true });
+      return;
+    }
+    const names = rows.map((d) => d.userName).join('、');
+    ElMessageBox.confirm(`是否确认删除用户「${names}」？`, '系统提示', {
+      type: 'warning',
+      draggable: true
     })
       .then(async () => {
-        await removeAccount(row.userId);
-        EleMessage.success({ message: '已删除', plain: true });
-        tableRef.value?.reload?.();
+        for (const item of rows) {
+          await removeAccount(item.userId);
+        }
+        EleMessage.success({ message: '删除成功', plain: true });
+        selections.value = [];
+        reload();
       })
       .catch(() => {});
   };
