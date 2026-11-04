@@ -1,5 +1,4 @@
-// 异步任务：决策日志入库、归因写入、DNS 校验、健康检查、告警、Webhook。
-// I0 只建立运行骨架与依赖连通性检查，具体消费者从 I3 起加入。
+// 异步任务：决策日志入库、归因写入、源站健康检查、日志保留清理。
 package main
 
 import (
@@ -14,28 +13,56 @@ import (
 	"cloak/internal/app/bootstrap"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/pkg/httpserver"
+	"cloak/internal/worker/streams"
+	"cloak/internal/worker/tasks"
 )
 
 func main() {
 	rt := bootstrap.Init("worker")
 	defer rt.Close()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	rdb, err := redis.Open(rt.Cfg.Redis)
 	if err != nil {
-		rt.Log.Warn("redis unavailable, worker will retry in background", zap.Error(err))
+		rt.Log.Warn("redis unavailable, stream consumers disabled", zap.Error(err))
+		rdb = nil
 	} else {
 		defer rdb.Close()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if db, err := mysql.Open(rt.Cfg.MySQL, rt.Log); err != nil {
-		rt.Log.Warn("mysql unavailable, origin probe disabled", zap.Error(err))
-	} else {
-		sites := sitesvc.New(mysql.NewSiteRepo(db), mysql.NewMerchantRepo(db), rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
-		go probeLoop(ctx, rt.Log, sites)
+	db, err := mysql.Open(rt.Cfg.MySQL, rt.Log)
+	if err != nil {
+		rt.Log.Error("mysql unavailable", zap.Error(err))
+		os.Exit(1)
 	}
-	go heartbeat(ctx, rt.Log)
+	siteRepo := mysql.NewSiteRepo(db)
+	merchantRepo := mysql.NewMerchantRepo(db)
+	logRepo := mysql.NewLogRepo(db)
+
+	sites := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
+	go probeLoop(ctx, rt.Log, sites)
+	go tasks.NewRetention(logRepo, merchantRepo, rt.Log).Run(ctx)
+
+	if rdb != nil {
+		consumer := streams.New(rdb, logRepo, rt.Log, rt.Cfg.App.NodeName)
+		go consumer.Run(ctx)
+		go func() {
+			t := time.NewTicker(time.Minute)
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					s := consumer.Stats()
+					rt.Log.Info("consumer stats", zap.Int64("decisions", s.Decisions), zap.Int64("attributions", s.Attributions),
+						zap.Int64("apiLogs", s.APILogs), zap.Int64("errors", s.Errors))
+				}
+			}
+		}()
+	}
 
 	srv := httpserver.New(rt.Log, rt.Cfg.HTTP, nil, rt.Metrics)
 	if err := srv.Run(ctx); err != nil {
@@ -56,19 +83,6 @@ func probeLoop(ctx context.Context, log *zap.Logger, sites *sitesvc.Service) {
 		case <-t.C:
 			log.Debug("probe origins")
 			sites.ProbeDue(ctx, 20)
-		}
-	}
-}
-
-func heartbeat(ctx context.Context, log *zap.Logger) {
-	t := time.NewTicker(30 * time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			log.Debug("worker alive")
 		}
 	}
 }

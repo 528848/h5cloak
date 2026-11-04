@@ -9,13 +9,16 @@ import (
 
 	"go.uber.org/zap"
 
+	"cloak/internal/adapter/geoip"
 	"cloak/internal/adapter/redis"
 	"cloak/internal/app/bootstrap"
 	"cloak/internal/engine"
 	"cloak/internal/engine/snapshot"
+	"cloak/internal/logpipe"
 	"cloak/internal/pkg/httpserver"
 	"cloak/internal/pkg/tlsconf"
 	"cloak/internal/proxy"
+	"cloak/internal/quota"
 	"cloak/internal/transport/http/gateway"
 )
 
@@ -45,6 +48,23 @@ func main() {
 	px := proxy.New(rt.Cfg.Gateway.Proxy, rt.Log)
 	defer px.Close()
 	deps.Proxy = px
+
+	// 日志管道：Redis 不可用时写本地 WAL，恢复后回放
+	pipe := logpipe.New(logpipe.Options{WALDir: rt.Cfg.Gateway.LogWALDir}, rdb, rt.Log)
+	defer pipe.Close()
+	deps.Pipe = pipe
+	deps.Quota = quota.New(rdb)
+	if geo, ok, err := geoip.Open(rt.Cfg.Gateway.GeoIPPath); err != nil {
+		rt.Log.Warn("geoip open failed, country disabled", zap.Error(err))
+	} else {
+		deps.Geo = geo
+		defer geo.Close()
+		if ok {
+			rt.Log.Info("geoip loaded", zap.String("path", rt.Cfg.Gateway.GeoIPPath))
+		} else {
+			rt.Log.Info("geoip database not found, country field disabled", zap.String("path", rt.Cfg.Gateway.GeoIPPath))
+		}
+	}
 
 	// TLS：只对已绑定域名签发
 	allow := func(ctx context.Context, host string) bool {

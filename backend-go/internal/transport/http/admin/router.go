@@ -11,6 +11,7 @@ import (
 	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/decisionsvc"
+	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
@@ -38,6 +39,7 @@ type Deps struct {
 	Attribution *attrsvc.Service
 	Decision    *decisionsvc.Service
 	Publisher   *snapshotsvc.Publisher
+	Logs        *logsvc.Service
 	Repo        identity.MerchantRepository
 	Authn       *middleware.Authenticator
 	OpLog       *middleware.OperationLogger
@@ -185,6 +187,16 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.GET("/snapshot/status", middleware.RequirePerm("site:site:list"), dh.status)
 		adminG.POST("/snapshot/:id/publish", middleware.RequirePerm("site:site:status"), dh.publish)
 		adminG.POST("/snapshot/publish-all", middleware.RequirePerm("site:site:status"), dh.publishAll)
+	}
+
+	if d.Logs != nil {
+		lh := &logHandler{svc: d.Logs}
+		merchantG.GET("/decision-log/list", middleware.RequirePerm("log:decision:list"), lh.list)
+		merchantG.GET("/decision-log/stats", middleware.RequirePerm("log:decision:list"), lh.stats)
+		merchantG.GET("/decision-log/:requestId", middleware.RequirePerm("log:decision:list"), lh.detail)
+		adminG.GET("/decision-log/list", middleware.RequirePerm("log:decision:list"), lh.list)
+		adminG.GET("/decision-log/stats", middleware.RequirePerm("log:decision:list"), lh.stats)
+		adminG.GET("/decision-log/:requestId", middleware.RequirePerm("log:decision:list"), lh.detail)
 	}
 
 	uh := &userHandler{svc: d.Users}

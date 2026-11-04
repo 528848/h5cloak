@@ -13,11 +13,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
+	"cloak/internal/adapter/geoip"
 	"cloak/internal/config"
+	"cloak/internal/domain/decisionlog"
 	"cloak/internal/engine"
 	"cloak/internal/engine/snapshot"
+	"cloak/internal/logpipe"
 	"cloak/internal/pkg/requestid"
 	"cloak/internal/proxy"
+	"cloak/internal/quota"
 )
 
 // Deps 网关依赖。Store / Engine 为空时只提供健康检查（I0 兼容与单测）。
@@ -31,6 +35,10 @@ type Deps struct {
 	Proxy   *proxy.Proxy
 	// RedirectHTTPS 为 true 时，明文请求（非 ACME 挑战）跳转到 https
 	RedirectHTTPS bool
+	// 以下可为 nil
+	Pipe  *logpipe.Pipe
+	Quota *quota.Checker
+	Geo   geoip.Resolver
 }
 
 // DebugDecideHeader 请求头带此值时返回判定 JSON 而非回源，供排障。
@@ -121,6 +129,31 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	d := h.d.Engine.Decide(r.Context(), rc)
 	h.latency.Observe(time.Since(start).Seconds())
+
+	// 额度：bypass 不计量；超额按商户策略覆盖判定
+	quotaHit := ""
+	if d.Content != engine.ContentBypass && h.d.Quota != nil {
+		if h.d.Quota.Over(r.Context(), site.MerchantID, site.Quota.Decisions) {
+			switch site.Quota.Policy {
+			case quota.PolicyReviewAll:
+				if d.Content == engine.ContentReal {
+					d.Content = engine.ContentReview
+					d.VisitorToken = ""
+					quotaHit = "review_all"
+				}
+			case quota.PolicyDeny:
+				d.Content = engine.ContentBlock
+				d.VisitorToken = ""
+				quotaHit = "deny"
+			default:
+				quotaHit = "alert"
+			}
+			if quotaHit != "" {
+				d.Trace = append(d.Trace, engine.TraceStep{Step: "quota", Result: "over:" + quotaHit})
+			}
+		}
+		h.d.Quota.Count(site.MerchantID)
+	}
 	h.decisions.WithLabelValues(d.Content, d.TouchType).Inc()
 
 	// bypass 不写 cookie；其余按判定写
@@ -128,18 +161,80 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.writeCookie(w, r, site, &d)
 	}
 
+	var res proxy.Result
 	if h.d.Proxy == nil || r.Header.Get(DebugDecideHeader) == "decide" {
 		h.writeDecision(w, id, site, &d, time.Since(start))
+		res = proxy.Result{Kind: "debug"}
+	} else {
+		res = h.d.Proxy.Serve(w, r, proxy.Request{
+			Site: site, Decision: &d, ClientIP: ipString(rc.IP), Scheme: rc.URL.Scheme, RequestID: id,
+		})
+		h.proxied.WithLabelValues(res.Kind, boolLabel(res.Fallback)).Inc()
+		if res.Error != "" {
+			h.d.Log.Warn("proxy", zap.String("request_id", id), zap.Uint64("site", site.SiteID), zap.String("kind", res.Kind),
+				zap.Int("origin_status", res.OriginStatus), zap.String("error", res.Error), zap.Bool("fallback", res.Fallback))
+		}
+	}
+	h.emit(rc, &d, res, time.Since(start))
+}
+
+// emit 把判定写入日志管道（不阻塞）。
+func (h *Handler) emit(rc *engine.RequestContext, d *engine.Decision, res proxy.Result, took time.Duration) {
+	if h.d.Pipe == nil {
 		return
 	}
-	res := h.d.Proxy.Serve(w, r, proxy.Request{
-		Site: site, Decision: &d, ClientIP: ipString(rc.IP), Scheme: rc.URL.Scheme, RequestID: id,
-	})
-	h.proxied.WithLabelValues(res.Kind, boolLabel(res.Fallback)).Inc()
-	if res.Error != "" {
-		h.d.Log.Warn("proxy", zap.String("request_id", id), zap.Uint64("site", site.SiteID), zap.String("kind", res.Kind),
-			zap.Int("origin_status", res.OriginStatus), zap.String("error", res.Error), zap.Bool("fallback", res.Fallback))
+	site := rc.Site
+	country := ""
+	if h.d.Geo != nil {
+		country = h.d.Geo.Country(rc.IP)
 	}
+	names := make([]string, 0, 4)
+	for k := range rc.URL.Query() {
+		names = append(names, k)
+	}
+	ev := decisionlog.Event{
+		CreatedAt: rc.Now, RequestID: rc.RequestID, MerchantID: site.MerchantID, SiteID: site.SiteID,
+		Entry: rc.Entry, Method: rc.Method, Host: rc.URL.Host, Path: rc.URL.Path, QueryParamNames: names,
+		TouchType: d.TouchType, Content: d.Content, Attributed: d.Attributed, Confidence: d.Confidence,
+		InAppBrowser: d.InApp.App, DeviceFamily: d.InApp.DeviceFamily, HandoffKind: d.HandoffKind,
+		Channel: d.Channel, MatchedParams: d.MatchedParams, ValidationErrors: d.ValidationErrors,
+		VisitorID: d.VisitorID, AttributionID: d.AttributionID,
+		IPHash: engine.HashIP(rc.IP), IPPrefix: engine.IPPrefix(rc.IP), Country: country, OS: d.InApp.OS,
+		UASummary: trunc(rc.UserAgent, 255), RefererSummary: trunc(rc.Referer, 255),
+		OriginKind: res.Kind, OriginStatus: res.OriginStatus, Fallback: res.Fallback,
+		LatencyMs: int(took.Milliseconds()), Degraded: d.Degraded, Trace: d.Trace,
+	}
+	if d.Code != nil {
+		ev.CodeID, ev.Code = d.Code.ID, d.Code.Code
+	}
+	if d.PathRule != nil {
+		ev.PathRule = d.PathRule.Action + " " + d.PathRule.Pattern
+	}
+	if !d.TokenExpiresAt.IsZero() {
+		t := d.TokenExpiresAt
+		ev.AttributionExpiresAt = &t
+	}
+	h.d.Pipe.Publish(decisionlog.StreamDecisions, ev)
+
+	if d.Attributed && d.VisitorID != "" && d.Content == engine.ContentReal {
+		aw := decisionlog.AttributionWrite{
+			At: rc.Now, RequestID: rc.RequestID, MerchantID: site.MerchantID, SiteID: site.SiteID,
+			VisitorID: d.VisitorID, AttributionID: d.AttributionID, TouchType: d.TouchType, HandoffKind: d.HandoffKind,
+			Channel: d.Channel, MatchedParams: d.MatchedParams, LandingPath: rc.URL.Path, Confidence: d.Confidence,
+			ExpiresAt: ev.AttributionExpiresAt, Country: country, DeviceFamily: d.InApp.DeviceFamily, InAppBrowser: d.InApp.App,
+		}
+		if d.Code != nil {
+			aw.CodeID = d.Code.ID
+		}
+		h.d.Pipe.Publish(decisionlog.StreamAttributions, aw)
+	}
+}
+
+func trunc(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n]
 }
 
 func ipString(ip netip.Addr) string {
@@ -263,6 +358,9 @@ func (h *Handler) status(w http.ResponseWriter) {
 	out := map[string]any{"uptimeSec": int(time.Since(h.started).Seconds())}
 	if h.d.Store != nil {
 		out["snapshots"] = h.d.Store.Stats()
+	}
+	if h.d.Pipe != nil {
+		out["logpipe"] = h.d.Pipe.Stats()
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

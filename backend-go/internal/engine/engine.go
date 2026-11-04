@@ -443,3 +443,9 @@ func ipPrefix(ip netip.Addr) string {
 }
 
 func ipHash(ip netip.Addr) string { return hashValue(ipPrefix(ip)) }
+
+// HashIP 导出：IP 前缀哈希（日志用，不存明文）。
+func HashIP(ip netip.Addr) string { return ipHash(ip) }
+
+// IPPrefix 导出：IPv4 /24、IPv6 /48 前缀。
+func IPPrefix(ip netip.Addr) string { return ipPrefix(ip) }

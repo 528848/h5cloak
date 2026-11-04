@@ -42,6 +42,7 @@ func (b *Builder) Build(ctx context.Context, siteID uint64) (*snapshot.Site, err
 		Format: snapshot.Version, Revision: now.UnixNano(), BuiltAt: now,
 		SiteID: site.ID, MerchantID: site.MerchantID, Name: site.Name, Status: site.Status, SiteType: site.SiteType,
 		MerchantActive: m.Active(now),
+		Quota:          snapshot.Quota{Decisions: m.DecisionQuota, Policy: m.QuotaPolicy, Retention: int(m.LogRetentionDays)},
 		Cookie:         snapshot.Cookie{Name: site.CookieName, Domain: deref(site.CookieDomain)},
 		Attribution: snapshot.Attribution{
 			TTLDays: site.AttributionTTLDays, RenewMode: site.RenewMode, NoAttributionAction: site.NoAttributionAction,

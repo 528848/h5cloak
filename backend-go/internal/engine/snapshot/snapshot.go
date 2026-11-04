@@ -23,7 +23,8 @@ type Site struct {
 	SiteType   string    `json:"siteType"`
 
 	// 商户状态：商户停用/冻结/到期时站点也不服务
-	MerchantActive bool `json:"merchantActive"`
+	MerchantActive bool  `json:"merchantActive"`
+	Quota          Quota `json:"quota"`
 
 	Domains   []Domain   `json:"domains"`
 	Origins   []Origin   `json:"origins"`
@@ -45,6 +46,13 @@ type Site struct {
 	SecretAllow    []string `json:"secretAllow"`
 
 	compiled *compiled
+}
+
+// Quota 商户判定额度与达到后的策略。
+type Quota struct {
+	Decisions uint64 `json:"decisions"` // 每月判定次数，0 为不限
+	Policy    string `json:"policy"`    // alert / review_all / deny
+	Retention int    `json:"retentionDays"`
 }
 
 type Domain struct {

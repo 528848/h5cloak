@@ -12,8 +12,8 @@
 | I3 | 站点、域名、源站、审核内容 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i3`（4ef7ec8） |
 | I4 | 归因规则与分销码 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i4`（1278261） |
 | I5 | 配置快照与判定引擎 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i5`（960cd10） |
-| I6 | 托管反向代理与证书 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i6`（af4145d） |
-| I7 | 决策日志与归因管道 | 未开始 | | | |
+| I6 | 托管反向代理与证书 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i6`（af4145d） |
+| I7 | 决策日志与归因管道 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i7` |
 | I8 | 服务端判定接口 v2 与 V1 兼容 | 未开始 | | | |
 | I9 | 跨浏览器交接 | 未开始 | | | |
 | I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 未开始 | | | |
@@ -23,7 +23,32 @@
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I6 托管反向代理与证书
+## 当前迭代：I7 决策日志与归因管道
+
+- [x] 迁移 `20261104000004`：`decision_logs`（`request_id` 唯一，回放幂等）、`visitors`、`attributions`（`(site_id, visitor_id)` 唯一）、`usage_counters`、`api_logs`
+- [x] 网关 `internal/logpipe`：环形缓冲（1 万）→ 每 200ms 或 500 条批量 `XADD` 到 `decision_logs` / `attribution_writes`；Redis 写失败切到本地 WAL（`.local/wal/*.wal`，超 256MB 丢最旧），每 3 秒探测恢复后回放并删除文件；写入永不阻塞请求
+- [x] 事件字段按技术方案 11.3：查询参数名、触点、内容、置信度、内置浏览器、设备族、交接方式、渠道、码、命中参数、校验失败、访客/归因 ID、IP 前缀与哈希（不存明文）、国家、UA/Referer 摘要、路径规则、响应来源与源站状态、兜底、耗时、降级、判定链路
+- [x] 计量 `internal/quota`：每次非 bypass 判定 `INCR usage:{merchant}:{yyyymm}`；超额按商户策略 `alert`（照常）/ `review_all`（真实→审核）/ `deny`（403），用量本地缓存 5 秒不增加延迟；快照携带商户额度，额度变更即时发布
+- [x] worker `internal/worker/streams`：消费组 `workers`，批量写决策日志、逐条应用归因（访客 upsert、归因首次字段只写一次、最近字段每次更新、触点/交接计数、分销码访问/首访/回访统计，回访不带码时按归因最近码累计）、回填 `attr:{site}:{vid}` 缓存、月度 `usage_counters`；失败不 ACK 下次重试；启动先处理未确认积压
+- [x] 保留清理 `worker/tasks`：每 6 小时按商户 `log_retention_days` 分批删除
+- [x] GeoIP `adapter/geoip`：有 `GeoLite2-Country.mmdb` 时解析国家，没有则留空
+- [x] 查询接口：商户端/总后台 `decision-log/list`（时间、站点、路径、触点、内容、渠道、码、失败原因、国家、内置浏览器、访客、请求 ID）、`/:requestId` 详情（链路、校验失败、归因、访客）、`/stats`（24 小时统计 + 当月用量）
+- [x] 前端：决策日志页（概览卡片可点筛选、搜索卡片含「更多条件」、列表、详情抽屉：Hero 摘要条 → 判定链路时间线 → 请求信息 → 归因 → 访客，可跳到首访请求）；总后台复用同一页面多一列商户
+- [x] 端到端冒烟：首访 ~500ms 内可查且链路完整；回访后归因触点 2、访客 2 次、码统计首访 1 回访 1；按失败原因/触点/访客筛选；总后台看到商户名、跨门户 403；Redis 写暂停 8 秒期间网关照常返回真实内容、14 条进 WAL，恢复后全部补齐；额度 1 + `review_all` 带码也返回审核且链路标 `quota`，`deny` 返回 403，恢复后正常
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I7 验收步骤
+
+1. 启动 mock 源站、admin、gateway、worker。建站绑自有域名、配两个源站、登记码，用 Facebook UA 带码访问网关一次，记下响应头 `X-Request-Id`。
+2. 30 秒内在商户端「决策日志」看到该请求：真实内容 / 首访 / 置信度高 / 内置浏览器 facebook；点详情能看到判定链路、识别到的参数、归因首次渠道、访客首次设备。
+3. 带 Cookie 再访问一次：日志为回访，详情里归因触点 2、访客访问 2 次；「分销码」页该码访问 2、首访 1、回访 1。
+4. 用「更多条件 → 失败原因 = 未登记」筛选，能筛出 `ref=NOPE` 那条。
+5. 总后台「决策日志」能看到商户列；商户端只看到自己的。
+6. `redis-cli CLIENT PAUSE 8000 WRITE` 后再访问网关：仍返回正确内容，`/_cloak/status` 的 `logpipe.walled` 增加；UNPAUSE 后 10 秒内日志出现在后台。
+7. 总后台把演示商户判定额度改为 1、策略「全部审核」：带码访问返回审核内容，详情链路出现 `quota=over:review_all`；策略「拒绝」返回 403；恢复额度后正常。
+8. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I6 托管反向代理与证书
 
 - [x] `internal/proxy`：按判定回源真实站/审核站或直出模板/静态包/403/404/维护页；每源站 Transport（连接池、拨号与响应头超时、对源站不开 HTTP/2、不解压）
 - [x] 请求改写：Host 换回源 Host、追加 `X-Forwarded-*`/`X-Real-IP`、追加 `X-Cloak-Content/Touch/Visitor/Request-Id`、删除客户端伪造的 `X-Cloak-*`、源站 URL 路径前缀拼接
@@ -54,7 +79,7 @@
 9. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
 10. 公网部分（需要服务器与域名）：按 `deploy/README.md` 部署后，在手机浏览器完成「带码首访真实内容、同窗口再访真实内容、新无痕窗口审核内容、证书自动签发」。
 
-## 上一迭代记录：I5 配置快照与判定引擎
+## 更早迭代记录：I5 配置快照与判定引擎
 
 - [x] `internal/engine`：纯函数引擎，输入 `RequestContext` + 站点快照，输出 `Decision`；Redis 能力通过 `Store` 接口注入，自带 `MemStore`
 - [x] 快照 `engine/snapshot`：JSON 结构 + `Compile()` 预编译（参数别名表、码表、正则、密钥、路径规则排序、域名索引）；网关侧 `Store` 懒加载、Host 索引、负缓存、按 revision 增量替换
@@ -192,7 +217,9 @@
 | --- | --- | --- |
 | T1 | 便携版 Go/MySQL/Redis 复用自 `D:\pay-virtual\.runtime`，路径写在 `scripts/dev/common.ps1` | 后续换独立安装只改该文件 |
 | T2 | 本地无 golangci-lint，门禁中跳过 | 安装后自动启用 |
-| T3 | 本地无 ClickHouse，日志仓库先用 MySQL 分区实现 | I7 在测试服务器接 ClickHouse |
+| T3 | 本地无 ClickHouse，决策日志用 MySQL（`decision_logs` 单表 + 索引，按商户保留期删除）；`LogRepo` 是唯一写入/查询入口，换 ClickHouse 只改适配器 | 测试服务器到位后接 ClickHouse，日志量大时切换 |
+| T13 | 小时聚合表 `metrics_hourly`、`code_stats_daily` 尚未建，看板与报表直接查日志表 | I11 看板时按量决定是否加聚合 |
+| T14 | `api_logs` 表与流已建，开放接口在 I8 才写入 | I8 |
 | T4 | 管理 API CORS 当前放行任意 Origin，生产由 Nginx 收紧 | I14 部署时处理 |
 | T5 | 头像与审核静态包都存在本地目录，多节点部署需切对象存储 | I6 接入对象存储后切换 |
 | T6 | 工具链固定 Go 1.23；`go get @latest` 会把 go.mod 拉到新版本，执行时需 `GOTOOLCHAIN=local` | 已在脚本中设置 |
@@ -211,7 +238,7 @@
 | Linux 测试服务器 | 未提供（本地已用模拟源站 + 自签证书完成全部可本地验证项，公网验收待服务器到位） | I6 公网验收 / I14 |
 | 测试域名 ×2 与 DNS 控制权 | 未提供 | I6 公网验收 / I14 |
 | 对象存储（R2/S3） | 未提供 | I6 |
-| GeoLite2 账号 | 未提供 | I7 |
+| GeoLite2 账号 | 未提供（代码已接入，把 `GeoLite2-Country.mmdb` 放到 `backend-go/.local/` 即生效） | 日志国家字段 |
 | SMTP / Telegram Bot | 未提供 | I11 |
 | WordPress + WooCommerce 测试站 | 未提供 | I10 |
 | V1 数据副本 | 未提供 | I13 |

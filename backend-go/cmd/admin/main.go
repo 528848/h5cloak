@@ -14,6 +14,7 @@ import (
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/bootstrap"
 	"cloak/internal/app/decisionsvc"
+	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
@@ -73,6 +74,7 @@ func main() {
 		publisher.PublishMerchantAsync(ctx, mid)
 	})
 	decisionSvc := decisionsvc.New(builder, rdb)
+	logSvc := logsvc.New(mysql.NewLogRepo(db), siteRepo)
 
 	// 启动时把全部站点快照刷一遍，保证 Redis 与数据库一致
 	if rdb != nil {
@@ -97,6 +99,7 @@ func main() {
 		Attribution: attrSvc,
 		Decision:    decisionSvc,
 		Publisher:   publisher,
+		Logs:        logSvc,
 		Repo:        merchantRepo,
 		Authn:       middleware.NewAuthenticator(tokens, repo, rbacSvc),
 		OpLog:       middleware.NewOperationLogger(repo, rt.Log),

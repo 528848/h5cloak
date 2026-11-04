@@ -75,6 +75,8 @@ type Gateway struct {
 	EntryHost      string   `mapstructure:"entry_host"`
 	Proxy          Proxy    `mapstructure:"proxy"`
 	TLS            TLS      `mapstructure:"tls"`
+	GeoIPPath      string   `mapstructure:"geoip_path"` // GeoLite2-Country.mmdb，空或不存在则不解析国家
+	LogWALDir      string   `mapstructure:"log_wal_dir"`
 }
 
 // Proxy 反向代理参数。
@@ -170,6 +172,8 @@ func setDefaults(v *viper.Viper, service string) {
 		v.SetDefault("gateway.tls.mode", "off")
 		v.SetDefault("gateway.tls.addr", ":443")
 		v.SetDefault("gateway.tls.cert_dir", "./.local/certs")
+		v.SetDefault("gateway.log_wal_dir", "./.local/wal")
+		v.SetDefault("gateway.geoip_path", "./.local/GeoLite2-Country.mmdb")
 	case "worker":
 		v.SetDefault("http.metrics_addr", "127.0.0.1:9091")
 	case "scheduler":

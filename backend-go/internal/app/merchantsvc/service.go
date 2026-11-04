@@ -276,8 +276,12 @@ func (s *Service) UpdateQuota(ctx context.Context, id uint64, q identity.Quota, 
 	}
 	m.SetQuota(q)
 	m.SetFeatures(f)
-	return s.merchants.Update(ctx, m,
-		"DecisionQuota", "SiteQuota", "DomainQuota", "CodeQuota", "UserQuota", "LogRetentionDays", "QuotaPolicy", "Features")
+	if err := s.merchants.Update(ctx, m,
+		"DecisionQuota", "SiteQuota", "DomainQuota", "CodeQuota", "UserQuota", "LogRetentionDays", "QuotaPolicy", "Features"); err != nil {
+		return err
+	}
+	s.notify(id)
+	return nil
 }
 
 // ResetAdminPassword 重置商户管理员密码，返回管理员账号。
