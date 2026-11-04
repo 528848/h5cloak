@@ -81,11 +81,12 @@ systemctl restart cloak-gateway
 | --- | --- |
 | 机器 | `170.178.174.31`，Debian 13，2 核 4G，主机名 `cloak-go` |
 | 登录 | `ssh cloak-test`（本机 `~/.ssh/config`，密钥 `~/.ssh/cloak_test`） |
-| 总后台 | http://admin.170-178-174-31.sslip.io （`admin` / `admin123`） |
-| 商户端 | http://merchant.170-178-174-31.sslip.io （`merchant` / `merchant123`） |
-| 入口 | `entry.170-178-174-31.sslip.io` |
+| 域名 | `h5cloak.com`（Cloudflare DNS，目前只有根域名 A 记录） |
+| 商户端 | http://h5cloak.com （`merchant` / `merchant123`） |
+| 总后台 | http://admin.h5cloak.com ，需先加 A 记录到 `170.178.174.31`。记录生效前仍可用 http://admin.170-178-174-31.sslip.io |
+| 入口 | 商户托管域名 CNAME 到 `h5cloak.com`，或 A 记录指向 `170.178.174.31` |
 | 演示站点 | http://demo.170-178-174-31.sslip.io ，分销码 `DEMO1` |
-| 证书 | Let's Encrypt staging，浏览器不信任；改正式证书见第 4 节 |
+| 证书 | 托管域名走 Let's Encrypt 正式环境。控制台目前是 HTTP |
 | 版本 | 见 `curl -s http://127.0.0.1:8080/api/version`（在服务器上） |
 
 种子账号只用于测试。接到真实流量前改掉密码。root 密码曾经在对话里出现过，建议在服务器上执行 `passwd` 换掉。

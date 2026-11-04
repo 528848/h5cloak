@@ -23,6 +23,7 @@ RELEASE=$(cd "$HERE/.." && pwd)
 CONF_FILE=$PREFIX/env/install.conf
 
 ADMIN_HOST=""; MERCHANT_HOST=""; ENTRY_HOST=""; ACME_EMAIL=""; DEMO_ORIGINS=0; SKIP_PKGS=0; TLS_STAGING=""
+ADMIN_ALIAS=""; MERCHANT_ALIAS=""
 [[ -f $CONF_FILE ]] && . "$CONF_FILE"
 
 while [[ $# -gt 0 ]]; do
@@ -32,6 +33,8 @@ while [[ $# -gt 0 ]]; do
     --entry-host) ENTRY_HOST=$2; shift 2;;
     --acme-email) ACME_EMAIL=$2; shift 2;;
     --tls-staging) TLS_STAGING=$2; shift 2;;   # true / false
+    --admin-alias) ADMIN_ALIAS=$2; shift 2;;
+    --merchant-alias) MERCHANT_ALIAS=$2; shift 2;;
     --demo-origins) DEMO_ORIGINS=1; shift;;
     --skip-packages) SKIP_PKGS=1; shift;;
     -h|--help) sed -n '2,20p' "$0"; exit 0;;
@@ -124,6 +127,8 @@ cat > $CONF_FILE <<EOF
 ADMIN_HOST=$ADMIN_HOST
 MERCHANT_HOST=$MERCHANT_HOST
 ENTRY_HOST=$ENTRY_HOST
+ADMIN_ALIAS=$ADMIN_ALIAS
+MERCHANT_ALIAS=$MERCHANT_ALIAS
 ACME_EMAIL=$ACME_EMAIL
 TLS_STAGING=$TLS_STAGING
 DEMO_ORIGINS=$DEMO_ORIGINS
@@ -145,7 +150,9 @@ sudo -u $USER_NAME bash -c "set -a; . $PREFIX/env/common.env; . $PREFIX/env/admi
 
 # ---------- 6. Nginx ----------
 log "Nginx"
-sed -e "s/ADMIN_HOST/${ADMIN_HOST}/g" -e "s/MERCHANT_HOST/${MERCHANT_HOST}/g" "$HERE/nginx/cloak.conf" > /etc/nginx/sites-available/cloak
+sed -e "s/ADMIN_HOST/${ADMIN_HOST}/g" -e "s/MERCHANT_HOST/${MERCHANT_HOST}/g" \
+    -e "s/ADMIN_ALIAS/${ADMIN_ALIAS}/g" -e "s/MERCHANT_ALIAS/${MERCHANT_ALIAS}/g" \
+    "$HERE/nginx/cloak.conf" > /etc/nginx/sites-available/cloak
 install -m 644 "$HERE/nginx/cloak-console.conf" /etc/nginx/snippets/cloak-console.conf
 ln -sf /etc/nginx/sites-available/cloak /etc/nginx/sites-enabled/cloak
 rm -f /etc/nginx/sites-enabled/default
