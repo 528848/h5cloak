@@ -368,6 +368,46 @@ curl -X POST {{BASE}}/api/open/decision \\
   -d '{"host":"{{HOST}}","path":"/lp","query":"ref=ALICE","ip":"203.0.113.10","userAgent":"Mozilla/5.0"}'
 # 返回 data.page = real | review（兼容字段），同时含 v2 的 content / cookie / renderHint`;
 
+export const jsSdkSample = `<!-- 1. 页面引入 SDK（公钥 pk_ 可公开，Origin 必须是站点已绑定域名） -->
+<script src="{{BASE}}/_cloak/sdk.js" data-key="{{PK}}" async></script>
+
+<!-- 2. 真实内容与审核内容各放一个区块；SDK 按判定结果显示其一，加载完成前两块都隐藏 -->
+<div data-cloak="review" hidden>…审核内容…</div>
+<div data-cloak="real" hidden>…真实内容…</div>
+
+<!-- 3. 可选：监听判定结果 -->
+<script>
+  window.addEventListener('cloak:decision', function (e) {
+    console.log(e.detail.content, e.detail.attributed, e.detail.channel);
+    // 下单时把 window.Cloak.getVisitorToken() 一并提交，服务端回传转化用
+  });
+</script>
+
+<!-- 可选属性：data-endpoint="…覆盖接口地址" data-cookie="_ck_vid" data-banner="off" -->`;
+
+export const wordpressSteps = [
+  {
+    title: '安装插件',
+    desc: '把仓库 wordpress-plugin/cloak-attribution 目录上传到 wp-content/plugins 并启用；旧版 cloak-api 插件请停用，配置会自动迁移。'
+  },
+  {
+    title: '填写连接',
+    desc: '设置 → Cloak 归因：网关地址填 {{BASE}}，服务端密钥填站点 sk_ 完整密钥（建议写进 wp-config.php 的 CLOAK_SECRET），点「测试连接」。'
+  },
+  {
+    title: '选择审核输出',
+    desc: '默认使用平台配置的审核模板；也可选站内页面、服务器 HTML 文件或外部地址内容。都在当前 URL 以 200 输出，不跳转。'
+  },
+  {
+    title: 'WooCommerce 范围',
+    desc: '可对全部商店页面判定，或只判定指定商品 / 分类（含对应购物车与结账页）。已登录用户、后台、REST、Cron 自动跳过。'
+  }
+];
+
+export const wordpressConfig = `// wp-config.php（推荐把密钥放这里而不是数据库）
+define('CLOAK_API_BASE', '{{BASE}}');
+define('CLOAK_SECRET', 'sk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');`;
+
 export const errorCodes = [
   ['missing_credentials', '缺少签名头或 X-API-Key'],
   ['missing_signature', '缺少 X-Cloak-Timestamp / Nonce / Signature 之一'],

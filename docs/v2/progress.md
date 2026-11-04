@@ -1,4 +1,4 @@
-# V2 开发进度
+﻿# V2 开发进度
 
 本文件是进度的唯一真源。每个迭代开始与结束时更新。执行方案见 `execution-plan.md`。
 
@@ -15,15 +15,38 @@
 | I6 | 托管反向代理与证书 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i6`（af4145d） |
 | I7 | 决策日志与归因管道 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i7`（3706736） |
 | I8 | 服务端判定接口 v2 与 V1 兼容 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i8`（66ed160） |
-| I9 | 跨浏览器交接 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i9`（0d3d8e0） |
-| I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 未开始 | | | |
+| I9 | 跨浏览器交接 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i9`（0d3d8e0） |
+| I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i10`（bf1d927） |
 | I11 | 看板、报表、告警、Webhook | 未开始 | | | |
 | I12 | 总后台监管与系统配置 | 未开始 | | | |
 | I13 | 迁移工具与影子对比 | 未开始 | | | |
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I9 跨浏览器交接
+## 当前迭代：I10 WordPress/WooCommerce 插件 v2 与 JS SDK
+
+- [x] 公钥索引 `pk:{publishableKey}` 随快照发布/删除；网关 `Store.ByPublishableKey`、`Loader.ResolvePublishableKey`
+- [x] `POST /api/open/v2/js/capture`（无需签名）：公钥 + `Origin` 校验（必须是站点已绑定域名，本地开发放行 localhost/127.0.0.1）、CORS 预检、每站点限流、同一引擎判定（entry `js`）、同一日志管道；返回 content/触点/置信度/渠道/码/内置浏览器/令牌与 cookie 元数据/`handoffUrl`/`handoffBanner`，不含 renderHint
+- [x] JS SDK `GET /_cloak/sdk.js`（任意 Host，缓存 1 小时）：`data-key` 公钥、`data-endpoint`/`data-cookie`/`data-banner="off"`；上报后切换 `[data-cloak="real|review"]` 区块、写访客 Cookie、注入引导条（x-safari-/intent://，`_ck_hb` 关闭记忆）、`cloak:decision` 事件（冒泡到 window）、`window.Cloak.getVisitorToken()/show()`；3 秒超时按审核处理
+- [x] WordPress 插件 v2 `wordpress-plugin/cloak-attribution/`（保留 v1 `cloak-api/`）：`Cloak_Attr_Signer` v2 签名；`Cloak_Attr_Client` 每请求调 `v2/decision`、按返回写 Cookie、回访判定 transient 缓存（仅「已有令牌且无参数」，带参数始终实时）；`Cloak_Attr_Gate` 在 `template_redirect` 优先级 1 判定，审核内容在当前 URL 以 200 输出（平台模板 HTML / 站内页面保持 URL / 服务器 HTML 文件 / 服务端拉取外部地址，均 `noindex`）；`block`→403、`not_found`→404；`wp_footer` 引导条注入；跳过后台/AJAX/Cron/REST/Feed/已登录（可选）/排除路径（`/path/*`）/审核页自身；`Cloak_Attr_Woo` 全部商店页面或仅指定商品 ID/分类 slug（购物车与结账按车内商品）；设置页（网关地址、密钥、超时、降级、缓存、输出方式、引导条、排除、Woo 范围）与「测试连接」（ping + 签名判定，按错误码给中文提示）；`CLOAK_API_BASE`/`CLOAK_SECRET` 常量覆盖；激活时从 v1 `cloak_api_settings` 迁移（模式映射、排除合并，`ck_` Key 不迁移并提示填 `sk_`）
+- [x] 商户端「接入指南」加 WordPress 插件四步 + `wp-config.php` 片段、JS SDK 引入示例（自动带入站点公钥）；`openapi.yaml` 加 `/_cloak/sdk.js` 与 `v2/js/capture`
+- [x] 单测：`originAllowed`（绑定域名/端口/localhost/子域伪装/空/非法）、js/capture 预检/未知公钥/Origin 拒绝/缺字段/带码首访/回访/无归因、SDK 脚本响应；PHP 文件 `php -l` 通过
+- [x] 端到端冒烟 9 组：sdk.js 可取；预检 204 带 ACAO；带码首访 real + cookie + 微信 UA 下 handoffUrl 与 banner；回访 return；localhost Origin 无归因 review；错 Origin 403 `origin_not_allowed`、未知公钥 401、缺字段 400；插件 `Cloak_Attr_Signer` 直签 `v2/decision` 200 real `hostKnown=true`；判定日志 entry 出现 `js`
+- [x] 浏览器验证（本地静态页 + 网关 SDK）：带码访问真实区块显示、Cookie 写入、`cloak:decision` 事件带 attributed/channel；微信 UA 下底部引导条 `href` 含 `_ck`；清 Cookie 无参数访问显示审核区块
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I10 验收步骤
+
+1. 商户端「接入指南」选站点，JS SDK 段落复制示例到一个静态 HTML（域名须绑定到该站点，或本地用 localhost），带 `?ref=<已登记码>` 打开：真实区块显示、`_ck_vid` Cookie 写入；换无痕窗口不带参数打开：审核区块显示。
+2. 用微信/Facebook UA 带码打开同一页：底部出现「在浏览器中打开」引导条，链接含 `_ck=`；点 × 后刷新不再出现。
+3. 把示例放到未绑定域名下打开：接口 403 `origin_not_allowed`，页面按审核区块显示。
+4. WordPress 测试站安装 `wordpress-plugin/cloak-attribution`，设置页填网关地址与 `sk_` 密钥，「测试连接」显示连接成功；勾选启用后：带码访问任意页面看到真实页面并种 Cookie，无 Cookie 无参数访问同一 URL 看到审核内容（状态 200、地址不变、`X-Cloak-Content: review`）；后台与登录页不受影响。
+5. WooCommerce：范围选「只判定下列商品 / 分类」，填一个商品 ID：该商品页判定，其他商品页直接真实内容；把该商品加入购物车后购物车页也判定。
+6. 停用网关后访问：按「网关不可用时」设置显示审核或真实内容，页面不报错。
+7. 装过 v1 `cloak-api` 的站点激活 v2 插件：设置页已带入网关地址、审核模式与排除路径，顶部提示需填写 `sk_` 密钥。
+8. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I9 跨浏览器交接
 
 I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Referer 表、置信度接入判定、交接令牌签发/`_ck` 消费/次数与过期、同设备匹配候选登记/窗口匹配/一次性消费、引导条注入与站内链接延续、`Accept-Encoding: identity` 回源。本迭代补齐：
 
@@ -280,7 +303,10 @@ I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Refere
 | T8 | ~~网关在 I6 之前对站点请求返回判定 JSON 而非回源内容~~ | I6 已接入反向代理；`X-Cloak-Debug: decide` 保留 JSON 用于排障 |
 | T10 | 证书存本地目录，多网关节点需共享（对象存储或 Redis 存储后端） | I14 多节点部署前处理 |
 | T11 | 静态包、模板响应未做磁盘/内存缓存，大流量下每次读文件与渲染 | 压测后按需加 LRU |
-| T12 | 引导条文案与链接延续只处理原始 HTML，脚本动态生成的链接需 JS SDK 补齐 | I10 |
+| T12 | ~~引导条文案与链接延续只处理原始 HTML，脚本动态生成的链接需 JS SDK 补齐~~ | I10 JS SDK 已提供引导条；SDK 暂不改写动态链接的 `_ck`（页面内跳转由 Cookie 延续） |
+| T18 | WordPress 插件 v2 只做了 `php -l` 与签名器直连网关验证，未在真实 WordPress/WooCommerce 站点跑过（本地无 WP 环境）；站内页面模式 `render_wp_page` 对部分主题/页面构建器可能需要调整 | 测试服务器到位后装 WP + Woo 按 I10 验收步骤 4–7 验证 |
+| T19 | JS SDK 的审核/真实内容都在页面源码里，只是切换显示；SDK 不做严格隐藏（文档已注明），`_cloak/sdk.js` 公钥模式限流只按站点 | 需要严格隐藏用服务端或托管接入；滥用时在 I12 加按 IP 限流 |
+| T20 | 插件审核页「站内页面」模式用 `WP_Query` 替换主查询渲染，整页缓存插件（WP Super Cache 等）会把首个访客的结果缓存给所有人 | readme 已提示关闭整页缓存；I13 文档补常见缓存插件的排除配置 |
 | T9 | 广告 Referer 域名表与内置浏览器 UA 特征写死在代码里 | I12 移到 `cfg:global` 由总后台维护 |
 
 ## 环境与资源

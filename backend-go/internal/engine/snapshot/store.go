@@ -12,6 +12,7 @@ type Loader interface {
 	LoadSite(ctx context.Context, siteID uint64) (*Site, error)
 	ResolveHost(ctx context.Context, host string) (uint64, error)
 	ResolvePrefix(ctx context.Context, prefix string) (uint64, error)
+	ResolvePublishableKey(ctx context.Context, pk string) (uint64, error)
 }
 
 // Store 网关内存快照仓库：按站点 ID 常驻，Host → 站点 ID 缓存，支持增量替换。
@@ -112,6 +113,36 @@ func (s *Store) ByPrefix(ctx context.Context, prefix string) (*Site, bool) {
 	site, ok := s.Get(ctx, id)
 	if ok && site.SecretPrefix == prefix {
 		s.prefixes.Store(prefix, id)
+		return site, true
+	}
+	return nil, false
+}
+
+// ByPublishableKey 按公钥取快照（JS SDK）。
+func (s *Store) ByPublishableKey(ctx context.Context, pk string) (*Site, bool) {
+	if pk == "" {
+		return nil, false
+	}
+	var found *Site
+	s.sites.Range(func(_, v any) bool {
+		if v.(*Site).PublishableKey == pk {
+			found = v.(*Site)
+			return false
+		}
+		return true
+	})
+	if found != nil {
+		return found, true
+	}
+	if s.loader == nil {
+		return nil, false
+	}
+	id, err := s.loader.ResolvePublishableKey(ctx, pk)
+	if err != nil || id == 0 {
+		return nil, false
+	}
+	site, ok := s.Get(ctx, id)
+	if ok && site.PublishableKey == pk {
 		return site, true
 	}
 	return nil, false

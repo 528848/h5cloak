@@ -29,6 +29,15 @@ func (f *fakeLoader) ResolvePrefix(_ context.Context, p string) (uint64, error) 
 	return 0, errors.New("nf")
 }
 
+func (f *fakeLoader) ResolvePublishableKey(_ context.Context, p string) (uint64, error) {
+	for id, s := range f.sites {
+		if s.PublishableKey == p {
+			return id, nil
+		}
+	}
+	return 0, errors.New("nf")
+}
+
 func (f *fakeLoader) ResolveHost(_ context.Context, h string) (uint64, error) {
 	if id, ok := f.hosts[h]; ok {
 		return id, nil

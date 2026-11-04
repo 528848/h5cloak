@@ -20,6 +20,7 @@ const (
 	KeySitePrefix   = "cfg:site:"
 	KeyHostPrefix   = "host:"
 	KeyPrefixPrefix = "sk:"
+	KeyPKPrefix     = "pk:"
 	KeySiteIndex    = "cfg:sites"
 	ChanChanged     = "cfg:changed"
 )
@@ -69,6 +70,9 @@ func (p *Publisher) Publish(ctx context.Context, siteID uint64) error {
 		pipe.Set(ctx, KeyPrefixPrefix+snap.SecretPrefix, itoa(siteID), 0)
 		pipe.Set(ctx, "cfg:site:"+itoa(siteID)+":prefix", snap.SecretPrefix, 0)
 	}
+	if snap.PublishableKey != "" {
+		pipe.Set(ctx, KeyPKPrefix+snap.PublishableKey, itoa(siteID), 0)
+	}
 	for _, d := range snap.Domains {
 		if d.Status == "bound" {
 			pipe.Set(ctx, KeyHostPrefix+d.Domain, itoa(siteID), 0)
@@ -97,6 +101,9 @@ func (p *Publisher) Remove(ctx context.Context, siteID uint64) error {
 	}
 	if prefix != "" {
 		pipe.Del(ctx, KeyPrefixPrefix+prefix)
+	}
+	if old, err := Load(ctx, p.rdb, siteID); err == nil && old.PublishableKey != "" {
+		pipe.Del(ctx, KeyPKPrefix+old.PublishableKey)
 	}
 	pipe.Del(ctx, "cfg:site:"+itoa(siteID)+":hosts", "cfg:site:"+itoa(siteID)+":prefix", KeySitePrefix+itoa(siteID))
 	pipe.SRem(ctx, KeySiteIndex, itoa(siteID))

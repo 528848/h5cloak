@@ -7,8 +7,10 @@
       <div class="hero-head">
         <div>
           <div class="hero-title">
-            <h3>服务端接入指南</h3>
+            <h3>接入指南</h3>
             <el-tag type="success" effect="light">v2 签名接口</el-tag>
+            <el-tag effect="plain">WordPress 插件</el-tag>
+            <el-tag effect="plain">JS SDK</el-tag>
             <el-tag type="info" effect="plain">兼容 V1 X-API-Key</el-tag>
           </div>
           <div class="hero-desc">
@@ -153,6 +155,44 @@
         </section-card>
 
         <section-card
+          title="WordPress / WooCommerce 插件"
+          subtitle="无需写代码，插件完成签名、判定与输出"
+          class="page-section"
+        >
+          <el-steps
+            direction="vertical"
+            :active="4"
+            finish-status="success"
+            class="steps"
+          >
+            <el-step
+              v-for="st in wordpressSteps"
+              :key="st.title"
+              :title="st.title"
+              :description="render(st.desc)"
+            />
+          </el-steps>
+          <pre class="code-block mono">{{ render(wordpressConfig) }}</pre>
+        </section-card>
+
+        <section-card
+          title="JS SDK（静态站 / 前端接入）"
+          subtitle="公钥可公开；判定在浏览器端触发，适合无服务端的落地页"
+          class="page-section"
+        >
+          <template #extra>
+            <el-button link type="primary" @click="copy(render(jsSdkSample))"
+              >复制</el-button
+            >
+          </template>
+          <p class="scene-desc">
+            审核内容和真实内容都会下发到浏览器，只是切换显示，适合对隐藏要求不高的场景；需要严格隐藏请用服务端接入或托管接入。
+            公钥：<code class="mono">{{ site?.publishableKey || 'pk_…' }}</code>
+          </p>
+          <pre class="code-block mono">{{ render(jsSdkSample) }}</pre>
+        </section-card>
+
+        <section-card
           title="V1 兼容调用"
           subtitle="旧插件无需改动；新接入请用 v2 签名"
           class="page-section"
@@ -194,6 +234,9 @@
     signSamples,
     scenarios,
     v1Sample,
+    jsSdkSample,
+    wordpressSteps,
+    wordpressConfig,
     errorCodes
   } from './samples';
 
@@ -217,6 +260,7 @@
     String(tpl || '')
       .replaceAll('{{BASE}}', baseUrl.value)
       .replaceAll('{{PREFIX}}', site.value?.secretPrefix || 'sk_xxxxxxxxx')
+      .replaceAll('{{PK}}', site.value?.publishableKey || 'pk_xxxxxxxxx')
       .replaceAll('{{HOST}}', hostName.value);
 
   const loadSite = () => {

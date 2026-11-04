@@ -144,6 +144,66 @@ paths:
                       data: { $ref: '#/components/schemas/Decision' }
         "401": { description: 鉴权失败, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         "429": { description: 限流 }
+  /_cloak/sdk.js:
+    get:
+      security: []
+      summary: 浏览器 JS SDK 脚本
+      description: |
+        静态站点 / 前端接入。页面引入：
+        `<script src="https://entry.example.com/_cloak/sdk.js" data-key="pk_..." async></script>`
+        SDK 调用 `js/capture`，按返回切换 `[data-cloak="real"]` / `[data-cloak="review"]` 区块、写访客 Cookie、处理 `_ck` 交接参数并注入引导条。
+        可选属性：`data-endpoint`（覆盖接口地址）、`data-cookie`（Cookie 名）、`data-banner="off"`（关闭引导条）。
+        事件：`cloak:decision`（detail 为判定结果）；全局 `window.Cloak.getVisitorToken()`、`window.Cloak.show('real'|'review')`。
+      responses:
+        "200": { description: application/javascript }
+  /api/open/v2/js/capture:
+    post:
+      security: []
+      summary: JS SDK 上报（公钥 + Origin 校验，无需签名）
+      description: 由浏览器调用。`Origin` 必须属于该站点已绑定的域名（或 localhost）。判定结果与服务端接口一致，但 cookie 由页面脚本写入，不含 renderHint。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, url]
+              properties:
+                key: { type: string, description: 站点公钥 pk_... }
+                url: { type: string, description: 当前页面完整 URL }
+                referrer: { type: string }
+                visitorToken: { type: string, description: 已有的访客 Cookie 值 }
+      responses:
+        "200":
+          description: 判定结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          content: { type: string, enum: [real, review, block, not_found, bypass] }
+                          touchType: { type: string }
+                          attributed: { type: boolean }
+                          confidence: { type: string }
+                          channel: { type: string }
+                          code: { type: object, nullable: true }
+                          inAppBrowser: { type: object }
+                          visitorToken: { type: string }
+                          cookie: { $ref: '#/components/schemas/Cookie' }
+                          handoffUrl: { type: string }
+                          handoffBanner:
+                            type: object
+                            properties:
+                              enabled: { type: boolean }
+                              text: { type: string }
+        "401": { description: 公钥无效或站点停用 }
+        "403": { description: Origin 不在站点域名内（data.error=origin_not_allowed） }
+        "429": { description: 限流 }
   /api/open/decision:
     post:
       summary: V1 兼容判定

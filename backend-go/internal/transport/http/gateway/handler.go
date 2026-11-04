@@ -106,6 +106,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.requests.WithLabelValues("status").Inc()
 		h.status(w)
 		return
+	case openapi.SDKPath:
+		h.requests.WithLabelValues("sdk").Inc()
+		openapi.ServeSDK(w, r)
+		return
 	}
 
 	if h.d.Store == nil || h.d.Engine == nil {

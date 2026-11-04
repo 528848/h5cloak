@@ -60,6 +60,17 @@ func (l *SnapshotLoader) ResolvePrefix(ctx context.Context, prefix string) (uint
 	return id, err
 }
 
+// ResolvePublishableKey 公钥 → 站点 ID。
+func (l *SnapshotLoader) ResolvePublishableKey(ctx context.Context, pk string) (uint64, error) {
+	v, err := l.rdb.Get(ctx, "pk:"+pk).Result()
+	if err != nil {
+		return 0, err
+	}
+	var id uint64
+	_, err = fmt.Sscanf(v, "%d", &id)
+	return id, err
+}
+
 // Subscribe 订阅配置变更，收到后刷新或删除对应站点。阻塞直到 ctx 结束。
 func (l *SnapshotLoader) Subscribe(ctx context.Context, store *snapshot.Store, log *zap.Logger) {
 	sub := l.rdb.Subscribe(ctx, chanChanged)

@@ -85,6 +85,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.write(w, 200, envelope{Code: 200, Msg: "ok", Data: map[string]any{"time": time.Now().Unix()}, RequestID: rid})
 		return
 	}
+	// JS SDK：公钥 + Origin 校验
+	if path == "v2/js/capture" {
+		h.jsCapture(w, r, rid, ip, start)
+		return
+	}
 
 	p, aerr := h.d.Auth.Authenticate(r.Context(), r, ip)
 	if aerr != nil {
