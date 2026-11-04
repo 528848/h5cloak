@@ -17,22 +17,31 @@ import (
 	"cloak/internal/engine"
 	"cloak/internal/engine/snapshot"
 	"cloak/internal/pkg/requestid"
+	"cloak/internal/proxy"
 )
 
 // Deps 网关依赖。Store / Engine 为空时只提供健康检查（I0 兼容与单测）。
+// Proxy 为空时对站点请求返回判定 JSON（调试用）。
 type Deps struct {
 	Cfg     *config.Config
 	Log     *zap.Logger
 	Metrics *prometheus.Registry
 	Store   *snapshot.Store
 	Engine  *engine.Engine
+	Proxy   *proxy.Proxy
+	// RedirectHTTPS 为 true 时，明文请求（非 ACME 挑战）跳转到 https
+	RedirectHTTPS bool
 }
+
+// DebugDecideHeader 请求头带此值时返回判定 JSON 而非回源，供排障。
+const DebugDecideHeader = "X-Cloak-Debug"
 
 // Handler 网关主处理器。使用标准库而非 gin，为后续反向代理留出完全控制权。
 type Handler struct {
 	d         Deps
 	requests  *prometheus.CounterVec
 	decisions *prometheus.CounterVec
+	proxied   *prometheus.CounterVec
 	latency   prometheus.Histogram
 	trusted   []netip.Prefix
 	started   time.Time
@@ -51,7 +60,10 @@ func New(d Deps) *Handler {
 		Namespace: "gateway", Subsystem: "engine", Name: "decide_seconds", Help: "Decide() latency.",
 		Buckets: []float64{.0005, .001, .002, .005, .01, .02, .05, .1},
 	})
-	d.Metrics.MustRegister(h.requests, h.decisions, h.latency)
+	h.proxied = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "gateway", Subsystem: "proxy", Name: "responses_total", Help: "Proxy responses by kind and fallback.",
+	}, []string{"kind", "fallback"})
+	d.Metrics.MustRegister(h.requests, h.decisions, h.proxied, h.latency)
 	if d.Cfg != nil {
 		for _, c := range d.Cfg.Gateway.TrustedProxies {
 			if p, err := netip.ParsePrefix(c); err == nil {
@@ -98,15 +110,50 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	h.requests.WithLabelValues("site").Inc()
 
+	// 明文 → HTTPS 跳转（ACME 挑战路径在外层已被拦截）
+	if h.d.RedirectHTTPS && r.TLS == nil && !strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		target := "https://" + r.Host + r.URL.RequestURI()
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+		return
+	}
+
 	rc := h.requestContext(r, site, id)
 	start := time.Now()
 	d := h.d.Engine.Decide(r.Context(), rc)
 	h.latency.Observe(time.Since(start).Seconds())
 	h.decisions.WithLabelValues(d.Content, d.TouchType).Inc()
 
-	h.writeCookie(w, r, site, &d)
-	// I6 之前：只返回判定结果，不回源。用 JSON 方便验证热更新与判定链路。
-	h.writeDecision(w, id, site, &d, time.Since(start))
+	// bypass 不写 cookie；其余按判定写
+	if d.Content != engine.ContentBypass {
+		h.writeCookie(w, r, site, &d)
+	}
+
+	if h.d.Proxy == nil || r.Header.Get(DebugDecideHeader) == "decide" {
+		h.writeDecision(w, id, site, &d, time.Since(start))
+		return
+	}
+	res := h.d.Proxy.Serve(w, r, proxy.Request{
+		Site: site, Decision: &d, ClientIP: ipString(rc.IP), Scheme: rc.URL.Scheme, RequestID: id,
+	})
+	h.proxied.WithLabelValues(res.Kind, boolLabel(res.Fallback)).Inc()
+	if res.Error != "" {
+		h.d.Log.Warn("proxy", zap.String("request_id", id), zap.Uint64("site", site.SiteID), zap.String("kind", res.Kind),
+			zap.Int("origin_status", res.OriginStatus), zap.String("error", res.Error), zap.Bool("fallback", res.Fallback))
+	}
+}
+
+func ipString(ip netip.Addr) string {
+	if !ip.IsValid() {
+		return ""
+	}
+	return ip.String()
+}
+
+func boolLabel(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 func (h *Handler) requestContext(r *http.Request, site *snapshot.Site, id string) *engine.RequestContext {

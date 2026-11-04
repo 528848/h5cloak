@@ -3,6 +3,7 @@ package httpserver
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"os"
@@ -21,8 +22,26 @@ import (
 type Server struct {
 	log     *zap.Logger
 	main    *http.Server
+	tlsSrv  *http.Server
 	metrics *http.Server
 	cfg     config.HTTP
+}
+
+// WithTLS 追加一个 HTTPS 监听（证书由 tlsCfg 的 GetCertificate 提供）。
+func (s *Server) WithTLS(addr string, tlsCfg *tls.Config, handler http.Handler) *Server {
+	if addr == "" || tlsCfg == nil {
+		return s
+	}
+	s.tlsSrv = &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		TLSConfig:         tlsCfg,
+		ReadHeaderTimeout: s.cfg.ReadHeaderTimeout,
+		ReadTimeout:       s.cfg.ReadTimeout,
+		WriteTimeout:      s.cfg.WriteTimeout,
+		IdleTimeout:       s.cfg.IdleTimeout,
+	}
+	return s
 }
 
 // New 创建 Server。handler 为空时不启动业务端口，只启动指标端口（worker/scheduler 用）。
@@ -55,11 +74,20 @@ func (s *Server) Run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	errCh := make(chan error, 2)
+	errCh := make(chan error, 3)
 	if s.main != nil {
 		go func() {
 			s.log.Info("http listening", zap.String("addr", s.main.Addr))
 			if err := s.main.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errCh <- err
+			}
+		}()
+	}
+	if s.tlsSrv != nil {
+		go func() {
+			s.log.Info("https listening", zap.String("addr", s.tlsSrv.Addr))
+			// 证书来自 TLSConfig.GetCertificate，无需文件
+			if err := s.tlsSrv.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				errCh <- err
 			}
 		}()
@@ -84,7 +112,7 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), s.cfg.ShutdownTimeout)
 	defer cancel()
 	var firstErr error
-	for _, srv := range []*http.Server{s.main, s.metrics} {
+	for _, srv := range []*http.Server{s.main, s.tlsSrv, s.metrics} {
 		if srv == nil {
 			continue
 		}

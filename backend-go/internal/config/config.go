@@ -73,6 +73,29 @@ type Auth struct {
 type Gateway struct {
 	TrustedProxies []string `mapstructure:"trusted_proxies"`
 	EntryHost      string   `mapstructure:"entry_host"`
+	Proxy          Proxy    `mapstructure:"proxy"`
+	TLS            TLS      `mapstructure:"tls"`
+}
+
+// Proxy 反向代理参数。
+type Proxy struct {
+	MaxBodyBytes    int64         `mapstructure:"max_body_bytes"`    // 请求体上限，默认 32MB
+	DialTimeout     time.Duration `mapstructure:"dial_timeout"`      // 默认 5s
+	IdleConnTimeout time.Duration `mapstructure:"idle_conn_timeout"` // 默认 90s
+	MaxIdlePerHost  int           `mapstructure:"max_idle_per_host"` // 默认 64
+	ReviewNoIndex   bool          `mapstructure:"review_noindex"`    // 审核内容加 X-Robots-Tag
+	InsecureOrigins bool          `mapstructure:"insecure_origins"`  // 跳过源站证书校验（本地自签源站）
+	MaintenanceHTML string        `mapstructure:"maintenance_html"`  // 维护页文件路径，空用内置
+}
+
+// TLS 网关 HTTPS。mode: off | selfsigned | acme。
+type TLS struct {
+	Mode       string `mapstructure:"mode"`
+	Addr       string `mapstructure:"addr"`        // HTTPS 监听，默认 :443；本地可 127.0.0.1:8443
+	CertDir    string `mapstructure:"cert_dir"`    // 证书存储目录（自签与 ACME 共用）
+	Email      string `mapstructure:"email"`       // ACME 账号邮箱
+	Staging    bool   `mapstructure:"staging"`     // 使用 Let's Encrypt staging
+	RedirectTo bool   `mapstructure:"redirect_to"` // HTTP 自动跳 HTTPS（ACME 挑战路径除外）
 }
 
 type Worker struct {
@@ -139,6 +162,14 @@ func setDefaults(v *viper.Viper, service string) {
 	case "gateway":
 		v.SetDefault("http.addr", "127.0.0.1:8090")
 		v.SetDefault("http.metrics_addr", "127.0.0.1:9090")
+		v.SetDefault("gateway.proxy.max_body_bytes", 32<<20)
+		v.SetDefault("gateway.proxy.dial_timeout", "5s")
+		v.SetDefault("gateway.proxy.idle_conn_timeout", "90s")
+		v.SetDefault("gateway.proxy.max_idle_per_host", 64)
+		v.SetDefault("gateway.proxy.review_noindex", true)
+		v.SetDefault("gateway.tls.mode", "off")
+		v.SetDefault("gateway.tls.addr", ":443")
+		v.SetDefault("gateway.tls.cert_dir", "./.local/certs")
 	case "worker":
 		v.SetDefault("http.metrics_addr", "127.0.0.1:9091")
 	case "scheduler":

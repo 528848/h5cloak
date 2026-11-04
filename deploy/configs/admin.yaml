@@ -1,0 +1,28 @@
+# 测试服务器管理 API 配置。敏感项用 /opt/cloak/env/admin.env 覆盖：
+#   CLOAK_MYSQL_DSN, CLOAK_REDIS_ADDR, CLOAK_AUTH_JWT_SECRET, CLOAK_APP_PUBLIC_URL
+app:
+  name: cloak-admin
+  env: test
+  node_name: test-admin-1
+  public_url: https://admin.example.com
+  upload_dir: /opt/cloak/uploads
+
+http:
+  addr: 127.0.0.1:8080
+  metrics_addr: 127.0.0.1:9080
+
+mysql:
+  dsn: cloak:CHANGE_ME@tcp(127.0.0.1:3306)/cloak_v2?charset=utf8mb4&parseTime=true&loc=Local
+
+redis:
+  addr: 127.0.0.1:6379
+
+log:
+  level: info
+  format: json
+
+auth:
+  jwt_secret: CHANGE_ME_TO_A_LONG_RANDOM_STRING
+
+gateway:
+  entry_host: entry.example.com

@@ -62,22 +62,23 @@ func New(repo *mysql.SiteRepo, merchants identity.MerchantRepository, entryHost,
 func errf(code int, msg string) error { return &authsvc.Error{Code: code, Msg: msg} }
 
 type SiteInput struct {
-	Name                 string
-	SiteType             string
-	Remark               string
-	CookieName           string
-	CookieDomain         string
-	AttributionTTLDays   int
-	RenewMode            string
-	NoAttributionAction  string
-	FailMode             string
-	MinConfidence        string
-	HandoffBanner        bool
+	Name                string
+	SiteType            string
+	Remark              string
+	CookieName          string
+	CookieDomain        string
+	AttributionTTLDays  int
+	RenewMode           string
+	NoAttributionAction string
+	FailMode            string
+	MinConfidence       string
+	// 三个开关用指针：API 未传时取默认值（引导条开、链接改写关、交接匹配开）
+	HandoffBanner        *bool
 	HandoffBannerText    string
-	HandoffLinkRewrite   bool
+	HandoffLinkRewrite   *bool
 	HandoffTokenTTLHours int
 	HandoffTokenMaxUses  int
-	HandoffMatchEnabled  bool
+	HandoffMatchEnabled  *bool
 	HandoffMatchMinutes  int
 	SecretIPAllowlist    []string
 }
@@ -109,9 +110,9 @@ func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (
 		SecretIPAllowlist: allow, CookieName: in.CookieName, CookieDomain: strPtr(in.CookieDomain),
 		AttributionTTLDays: in.AttributionTTLDays, RenewMode: in.RenewMode,
 		NoAttributionAction: in.NoAttributionAction, FailMode: in.FailMode, MinConfidence: in.MinConfidence,
-		HandoffBanner: in.HandoffBanner, HandoffBannerText: in.HandoffBannerText, HandoffLinkRewrite: in.HandoffLinkRewrite,
+		HandoffBanner: *in.HandoffBanner, HandoffBannerText: in.HandoffBannerText, HandoffLinkRewrite: *in.HandoffLinkRewrite,
 		HandoffTokenTTLHours: in.HandoffTokenTTLHours, HandoffTokenMaxUses: in.HandoffTokenMaxUses,
-		HandoffMatchEnabled: in.HandoffMatchEnabled, HandoffMatchMinutes: in.HandoffMatchMinutes,
+		HandoffMatchEnabled: *in.HandoffMatchEnabled, HandoffMatchMinutes: in.HandoffMatchMinutes,
 		TokenKeyVersion: 1, TokenKeys: keys,
 	}
 	review := &domainsite.ReviewContent{Source: domainsite.ReviewTemplate, TemplateVars: []byte(`{"siteName":"","slogan":""}`)}
@@ -141,10 +142,10 @@ func (s *Service) Update(ctx context.Context, merchantID, id uint64, in SiteInpu
 	site.CookieName, site.CookieDomain = in.CookieName, strPtr(in.CookieDomain)
 	site.AttributionTTLDays, site.RenewMode = in.AttributionTTLDays, in.RenewMode
 	site.NoAttributionAction, site.FailMode, site.MinConfidence = in.NoAttributionAction, in.FailMode, in.MinConfidence
-	site.HandoffBanner, site.HandoffBannerText = in.HandoffBanner, in.HandoffBannerText
-	site.HandoffLinkRewrite = in.HandoffLinkRewrite
+	site.HandoffBanner, site.HandoffBannerText = *in.HandoffBanner, in.HandoffBannerText
+	site.HandoffLinkRewrite = *in.HandoffLinkRewrite
 	site.HandoffTokenTTLHours, site.HandoffTokenMaxUses = in.HandoffTokenTTLHours, in.HandoffTokenMaxUses
-	site.HandoffMatchEnabled, site.HandoffMatchMinutes = in.HandoffMatchEnabled, in.HandoffMatchMinutes
+	site.HandoffMatchEnabled, site.HandoffMatchMinutes = *in.HandoffMatchEnabled, in.HandoffMatchMinutes
 	site.SecretIPAllowlist = allow
 	return s.done(id, s.repo.UpdateSite(ctx, site,
 		"Name", "SiteType", "Remark", "CookieName", "CookieDomain", "AttributionTTLDays", "RenewMode",
@@ -867,6 +868,15 @@ func normalize(in SiteInput) SiteInput {
 	if in.HandoffBannerText == "" {
 		in.HandoffBannerText = "在浏览器中打开，继续访问"
 	}
+	if in.HandoffBanner == nil {
+		in.HandoffBanner = boolPtr(true)
+	}
+	if in.HandoffLinkRewrite == nil {
+		in.HandoffLinkRewrite = boolPtr(false)
+	}
+	if in.HandoffMatchEnabled == nil {
+		in.HandoffMatchEnabled = boolPtr(true)
+	}
 	if in.HandoffTokenTTLHours <= 0 {
 		in.HandoffTokenTTLHours = 24
 	}
@@ -904,6 +914,8 @@ func normalizeDomain(d string) string {
 	d = strings.TrimSuffix(d, "/")
 	return d
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 func strPtr(s string) *string {
 	s = strings.TrimSpace(s)

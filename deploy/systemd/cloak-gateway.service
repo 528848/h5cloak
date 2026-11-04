@@ -1,0 +1,28 @@
+[Unit]
+Description=Cloak Gateway (hosted reverse proxy)
+After=network-online.target redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloak
+Group=cloak
+WorkingDirectory=/opt/cloak
+ExecStart=/opt/cloak/bin/gateway
+Restart=always
+RestartSec=3
+LimitNOFILE=1048576
+# 绑定 80/443 不需要 root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cloak/.local /opt/cloak/uploads
+PrivateTmp=true
+Environment=GOMAXPROCS=0
+# 覆盖配置用环境变量：CLOAK_<SECTION>_<KEY>
+EnvironmentFile=-/opt/cloak/env/gateway.env
+
+[Install]
+WantedBy=multi-user.target

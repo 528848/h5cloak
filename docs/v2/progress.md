@@ -11,8 +11,8 @@
 | I2 | 商户与额度 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i2`（b2dee42） |
 | I3 | 站点、域名、源站、审核内容 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i3`（4ef7ec8） |
 | I4 | 归因规则与分销码 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i4`（1278261） |
-| I5 | 配置快照与判定引擎 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i5`（960cd10） |
-| I6 | 托管反向代理与证书 | 未开始 | | | |
+| I5 | 配置快照与判定引擎 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i5`（960cd10） |
+| I6 | 托管反向代理与证书 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i6` |
 | I7 | 决策日志与归因管道 | 未开始 | | | |
 | I8 | 服务端判定接口 v2 与 V1 兼容 | 未开始 | | | |
 | I9 | 跨浏览器交接 | 未开始 | | | |
@@ -23,7 +23,38 @@
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I5 配置快照与判定引擎
+## 当前迭代：I6 托管反向代理与证书
+
+- [x] `internal/proxy`：按判定回源真实站/审核站或直出模板/静态包/403/404/维护页；每源站 Transport（连接池、拨号与响应头超时、对源站不开 HTTP/2、不解压）
+- [x] 请求改写：Host 换回源 Host、追加 `X-Forwarded-*`/`X-Real-IP`、追加 `X-Cloak-Content/Touch/Visitor/Request-Id`、删除客户端伪造的 `X-Cloak-*`、源站 URL 路径前缀拼接
+- [x] 响应改写：删 `Server`/`X-Powered-By`/`Via`，`Location` 指向源站时改回商户域名，源站 `Set-Cookie` 的 `Domain=源站` 去掉；真实与审核响应统一 `Cache-Control: private, no-store` + `Vary: Cookie`；审核内容加 `X-Robots-Tag: noindex`
+- [x] 流式转发（SSE 即时 flush）、WebSocket Hijack 双向拷贝、请求体上限 413、幂等请求建连失败重试一次
+- [x] 源站失败兜底：真实站不可达按 `fail_mode`（审核内容 / 维护页 503 / 502），审核站不可达退回模板；未配源站同样处理；`bypass` 不写 Cookie
+- [x] 内置浏览器放行且响应为 HTML：向源站请求 `identity`，在 `</body>` 前注入引导条（iOS `x-safari-https://`，Android `intent://`），对同域 `<a href>`/`<form action>` 追加 `_ck`，外域与锚点不动；系统浏览器不注入
+- [x] 静态包直出：按路径取文件，不存在回 `entry`（SPA），`..` 不越界，`Cache-Control: no-store`
+- [x] TLS `pkg/tlsconf`：`selfsigned`（本地 CA 持久化到 `.local/certs/selfsigned/ca.crt`，按 SNI 签发）与 `acme`（certmagic 按需签发，HTTP-01/TLS-ALPN-01，staging 可切）；两种模式都只对快照中已绑定域名放行，未绑定 SNI 拒绝握手；`httpserver` 增加 HTTPS 监听；可选明文跳 HTTPS
+- [x] 网关：`X-Cloak-Debug: decide` 请求头返回判定 JSON 便于排障；`gateway_proxy_responses_total{kind,fallback}` 指标；记录回源失败日志
+- [x] 站点 API：`handoffBanner`/`handoffLinkRewrite`/`handoffMatchEnabled` 未传时取默认（开/关/开），修正此前 API 建站引导条默认关的问题
+- [x] 本地工具：`cmd/mockorigin`（真实/审核模拟源站，回显头、302、Set-Cookie、SSE）、`scripts/dev/start-mock-origins.ps1`；`stop-all.ps1` 一并清理
+- [x] 部署：`deploy/install.sh`（构建、安装到 `/opt/cloak`、systemd unit、迁移提示）、三份 unit（网关 `CAP_NET_BIND_SERVICE` 绑 80/443）、测试服务器配置模板、`deploy/README.md`
+- [x] 单测：proxy 85.1%（头改写、Location、Cookie Domain、三种审核来源、兜底模式、413、HTML 注入、SSE、WebSocket）、tlsconf 66.7%、gateway 83.3%
+- [x] 端到端冒烟 16 项（真实/审核模拟源站 + 网关 + 自签 HTTPS）全部通过
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I6 验收步骤
+
+1. `scripts/dev/start-mock-origins.ps1`，再启动 admin 与 gateway。商户端建站、加自有域名并校验、真实源站填 `http://127.0.0.1:9101`、审核源站 `http://127.0.0.1:9102`、审核内容选「审核源站」、登记分销码 `PX1`。
+2. `curl -s -H "Host: <域名>" http://127.0.0.1:8090/lp` 返回 **REVIEW SITE** 页面，响应头有 `X-Robots-Tag: noindex`，没有 `Server`。
+3. `curl -si -H "Host: <域名>" "http://127.0.0.1:8090/lp?ref=PX1"` 返回 **REAL SITE** 页面与 `Set-Cookie: _ck_vid=...`；页面里回显的请求头含 `X-Cloak-Content: real`、`X-Forwarded-For`，Host 为回源 Host。
+4. 带该 Cookie 访问 `/second` 仍是 REAL SITE；不带 Cookie 是 REVIEW SITE。
+5. `/redirect` 的 `Location` 已改为商户域名；`/setcookie` 返回的源站 Cookie 不带 `Domain=`。
+6. 用 Facebook 内置浏览器 UA 带码访问：页面底部有「在浏览器中打开」引导条，站内链接带 `_ck=`；用该 `_ck` 以 Safari UA 访问 `/second` 返回 REAL SITE。
+7. 把真实源站改成不可达地址：带码访问按「失败兜底」返回审核内容或 503 维护页；审核源站也不可达时返回平台模板。
+8. `curl -sk --resolve <域名>:8443:127.0.0.1 https://<域名>:8443/lp` 返回 200；把域名换成未绑定的，握手失败。
+9. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+10. 公网部分（需要服务器与域名）：按 `deploy/README.md` 部署后，在手机浏览器完成「带码首访真实内容、同窗口再访真实内容、新无痕窗口审核内容、证书自动签发」。
+
+## 上一迭代记录：I5 配置快照与判定引擎
 
 - [x] `internal/engine`：纯函数引擎，输入 `RequestContext` + 站点快照，输出 `Decision`；Redis 能力通过 `Store` 接口注入，自带 `MemStore`
 - [x] 快照 `engine/snapshot`：JSON 结构 + `Compile()` 预编译（参数别名表、码表、正则、密钥、路径规则排序、域名索引）；网关侧 `Store` 懒加载、Host 索引、负缓存、按 revision 增量替换
@@ -51,7 +82,7 @@
 7. 站点配置页「轮换（宽限 72 小时）」后老 Cookie 仍放行且响应带新 Cookie；「强制全部重新归因」后老 Cookie 变为 review。
 8. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
 
-## 上一迭代记录：I4 归因规则与分销码
+## 更早迭代记录：I4 归因规则与分销码
 
 - [x] 迁移 `20261104000003`：`attribution_params`（内置行 `site_id=0`，站点行覆盖同名内置行）、`site_attribution_rules`、`promo_codes`（站点内唯一）
 - [x] 内置字典 19 个：fbclid、gclid、gbraid、wbraid、ttclid、twclid、msclkid、kwai_click_id、kwaiclickid、kpid、sclid、li_fat_id、utm_* 五个、`ref`（别名 r/aff/affiliate/referral）、`cid`（别名 campaign/promo），各带长度与正则
@@ -166,7 +197,10 @@
 | T5 | 头像与审核静态包都存在本地目录，多节点部署需切对象存储 | I6 接入对象存储后切换 |
 | T6 | 工具链固定 Go 1.23；`go get @latest` 会把 go.mod 拉到新版本，执行时需 `GOTOOLCHAIN=local` | 已在脚本中设置 |
 | T7 | 快照用 JSON 而非压缩 MsgPack；大站点（> 10 万码）快照会膨胀 | I7 或压测后按技术方案 7 节改为哈希集合 + Redis 详情 |
-| T8 | 网关在 I6 之前对站点请求返回判定 JSON 而非回源内容 | I6 接入反向代理后替换 |
+| T8 | ~~网关在 I6 之前对站点请求返回判定 JSON 而非回源内容~~ | I6 已接入反向代理；`X-Cloak-Debug: decide` 保留 JSON 用于排障 |
+| T10 | 证书存本地目录，多网关节点需共享（对象存储或 Redis 存储后端） | I14 多节点部署前处理 |
+| T11 | 静态包、模板响应未做磁盘/内存缓存，大流量下每次读文件与渲染 | 压测后按需加 LRU |
+| T12 | 引导条文案与链接延续只处理原始 HTML，脚本动态生成的链接需 JS SDK 补齐 | I10 |
 | T9 | 广告 Referer 域名表与内置浏览器 UA 特征写死在代码里 | I12 移到 `cfg:global` 由总后台维护 |
 
 ## 环境与资源
@@ -174,8 +208,8 @@
 | 资源 | 状态 | 需要在哪个迭代前 |
 | --- | --- | --- |
 | 本地 Go 1.23.12 / MySQL 8.4 / Redis 7.4 / Node 22 | 就绪 | - |
-| Linux 测试服务器 | 未提供 | I6 |
-| 测试域名 ×2 与 DNS 控制权 | 未提供 | I3（仅校验）/ I6（证书与代理） |
+| Linux 测试服务器 | 未提供（本地已用模拟源站 + 自签证书完成全部可本地验证项，公网验收待服务器到位） | I6 公网验收 / I14 |
+| 测试域名 ×2 与 DNS 控制权 | 未提供 | I6 公网验收 / I14 |
 | 对象存储（R2/S3） | 未提供 | I6 |
 | GeoLite2 账号 | 未提供 | I7 |
 | SMTP / Telegram Bot | 未提供 | I11 |

@@ -1,0 +1,22 @@
+[Unit]
+Description=Cloak Worker (origin probes, async jobs)
+After=network-online.target mysql.service redis.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloak
+Group=cloak
+WorkingDirectory=/opt/cloak
+ExecStart=/opt/cloak/bin/worker
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cloak/.local /opt/cloak/uploads
+PrivateTmp=true
+EnvironmentFile=-/opt/cloak/env/worker.env
+
+[Install]
+WantedBy=multi-user.target

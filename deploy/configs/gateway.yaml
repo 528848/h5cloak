@@ -1,0 +1,38 @@
+# 测试服务器网关配置。敏感项用 /opt/cloak/env/gateway.env 覆盖：
+#   CLOAK_REDIS_ADDR, CLOAK_REDIS_PASSWORD, CLOAK_GATEWAY_TLS_EMAIL
+app:
+  name: cloak-gateway
+  env: test
+  node_name: test-gw-1
+
+http:
+  addr: :80
+  metrics_addr: 127.0.0.1:9090
+  read_timeout: 60s
+  write_timeout: 0s
+  idle_timeout: 120s
+
+redis:
+  addr: 127.0.0.1:6379
+
+log:
+  level: info
+  format: json
+
+gateway:
+  trusted_proxies:
+    - 127.0.0.1/32
+    # 前置 Cloudflare 时加入其 IP 段
+  proxy:
+    max_body_bytes: 33554432
+    dial_timeout: 5s
+    idle_conn_timeout: 90s
+    max_idle_per_host: 64
+    review_noindex: true
+  tls:
+    mode: acme
+    addr: :443
+    cert_dir: /opt/cloak/.local/certs
+    email: ops@example.com      # 改成真实邮箱，或用 CLOAK_GATEWAY_TLS_EMAIL
+    staging: true               # 先 staging 验证流程，再改 false
+    redirect_to: true
