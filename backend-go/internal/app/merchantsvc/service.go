@@ -18,10 +18,20 @@ type Service struct {
 	users     identity.UserRepository
 	roles     identity.RoleRepository
 	tokens    *auth.TokenManager
+	changed   func(merchantID uint64) // 商户状态/到期变化后回调（重建其站点快照）
 }
 
 func New(m identity.MerchantRepository, u identity.UserRepository, r identity.RoleRepository, t *auth.TokenManager) *Service {
 	return &Service{merchants: m, users: u, roles: r, tokens: t}
+}
+
+// OnChange 注册商户变更回调。
+func (s *Service) OnChange(fn func(merchantID uint64)) { s.changed = fn }
+
+func (s *Service) notify(id uint64) {
+	if s.changed != nil {
+		s.changed(id)
+	}
 }
 
 func errf(code int, msg string) error { return &authsvc.Error{Code: code, Msg: msg} }
@@ -223,7 +233,11 @@ func (s *Service) Update(ctx context.Context, id uint64, in UpdateInput) error {
 	if m.Status == identity.StatusExpired && (m.ExpireAt == nil || m.ExpireAt.After(time.Now())) {
 		m.Status = identity.StatusEnabled
 	}
-	return s.merchants.Update(ctx, m, "Name", "ContactName", "ContactEmail", "ContactPhone", "Timezone", "Remark", "ExpireAt", "Status")
+	if err := s.merchants.Update(ctx, m, "Name", "ContactName", "ContactEmail", "ContactPhone", "Timezone", "Remark", "ExpireAt", "Status"); err != nil {
+		return err
+	}
+	s.notify(id)
+	return nil
 }
 
 // ChangeStatus 启用 / 停用 / 冻结。停用与冻结会踢出该商户全部会话。
@@ -247,6 +261,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id uint64, status string) er
 	if status != identity.StatusEnabled {
 		s.revokeMerchantSessions(ctx, id)
 	}
+	s.notify(id)
 	return nil
 }
 

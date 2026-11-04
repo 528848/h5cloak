@@ -612,18 +612,64 @@
       </section-card>
 
       <section-card
-        title="重置密钥"
-        subtitle="重置后旧密钥立即失效"
+        title="密钥操作"
+        subtitle="服务端密钥用于接口签名；访客令牌密钥用于签发 Cookie"
         class="page-section"
       >
-        <el-button
-          v-permission="'site:site:secret'"
-          type="danger"
-          plain
-          @click="handleResetSecret"
-        >
-          重置服务端密钥
-        </el-button>
+        <el-row :gutter="16">
+          <el-col :md="12" :xs="24">
+            <div class="key-box">
+              <div class="key-head">
+                <strong>服务端密钥</strong>
+                <span class="muted-text">前缀 {{ detail.secretPrefix }}</span>
+              </div>
+              <p class="muted-text"
+                >重置后旧密钥立即失效，使用旧密钥的服务端判定会失败。</p
+              >
+              <el-button
+                v-permission="'site:site:secret'"
+                type="danger"
+                plain
+                @click="handleResetSecret"
+              >
+                重置服务端密钥
+              </el-button>
+            </div>
+          </el-col>
+          <el-col :md="12" :xs="24">
+            <div class="key-box">
+              <div class="key-head">
+                <strong>访客令牌密钥</strong>
+                <span class="muted-text"
+                  >当前版本 v{{ detail.tokenKeyVersion || '-' }}</span
+                >
+              </div>
+              <p class="muted-text">
+                轮换后新访客用新密钥；旧 Cookie
+                在宽限期内仍可放行并自动换发。宽限期为 0
+                等于强制全部访客重新归因。
+              </p>
+              <el-space>
+                <el-button
+                  v-permission="'site:site:secret'"
+                  type="warning"
+                  plain
+                  @click="handleRotateKey(72)"
+                >
+                  轮换（宽限 72 小时）
+                </el-button>
+                <el-button
+                  v-permission="'site:site:secret'"
+                  type="danger"
+                  plain
+                  @click="handleRotateKey(0)"
+                >
+                  强制全部重新归因
+                </el-button>
+              </el-space>
+            </div>
+          </el-col>
+        </el-row>
       </section-card>
     </template>
 
@@ -692,6 +738,7 @@
     pageMerchantDomains,
     verifyMerchantDomain
   } from '@/api/merchant/domain';
+  import { rotateSiteKey } from '@/api/merchant/decision';
   import {
     siteStatusOptions,
     siteTypeOptions,
@@ -1008,6 +1055,23 @@
       });
   };
 
+  const handleRotateKey = (graceHours) => {
+    const text =
+      graceHours > 0
+        ? `轮换访客令牌密钥，旧 Cookie 在 ${graceHours} 小时内仍可放行。是否继续？`
+        : '旧 Cookie 立即失效，所有访客需要重新通过归因参数访问才能看到真实内容。是否继续？';
+    ElMessageBox.confirm(text, '系统提示', { type: 'warning', draggable: true })
+      .then(() => rotateSiteKey(siteId.value, graceHours))
+      .then((res) => {
+        if (!res) return;
+        EleMessage.success({ message: res.msg, plain: true });
+        load();
+      })
+      .catch((e) => {
+        if (e?.message) EleMessage.error({ message: e.message, plain: true });
+      });
+  };
+
   const handleResetSecret = () => {
     ElMessageBox.confirm(
       '重置后旧密钥立即失效，使用旧密钥的服务端判定会失败。是否继续？',
@@ -1034,6 +1098,26 @@
     margin-left: 8px;
     font-size: 12px;
     color: var(--el-text-color-secondary);
+  }
+
+  .key-box {
+    padding: 14px 16px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+    height: 100%;
+  }
+
+  .key-box .key-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+  }
+
+  .key-box p {
+    margin: 0 0 12px;
+    font-size: 12px;
+    line-height: 1.6;
   }
 
   .origin-box {

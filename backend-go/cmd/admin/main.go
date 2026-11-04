@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"os"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -12,8 +13,10 @@ import (
 	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/bootstrap"
+	"cloak/internal/app/decisionsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/sitesvc"
+	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/auth"
 	"cloak/internal/pkg/httpserver"
@@ -47,8 +50,43 @@ func main() {
 	merchantSvc := merchantsvc.New(merchantRepo, repo, repo, tokens)
 	userSvc := usersvc.New(repo, repo, merchantRepo, tokens)
 	siteRepo := mysql.NewSiteRepo(db)
+	attrRepo := mysql.NewAttributionRepo(db)
 	siteSvc := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL)
-	attrSvc := attrsvc.New(mysql.NewAttributionRepo(db), siteRepo, merchantRepo)
+	attrSvc := attrsvc.New(attrRepo, siteRepo, merchantRepo)
+
+	// 配置快照：任何站点级写操作后异步重建并发布到 Redis
+	builder := snapshotsvc.NewBuilder(siteRepo, attrRepo, merchantRepo)
+	publisher := snapshotsvc.NewPublisher(builder, rdb, rt.Log)
+	siteSvc.OnChange(publisher.PublishAsync)
+	attrSvc.OnChange(publisher.PublishAsync, func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			if _, err := publisher.PublishAll(ctx); err != nil {
+				rt.Log.Warn("publish all after builtin change", zap.Error(err))
+			}
+		}()
+	})
+	merchantSvc.OnChange(func(mid uint64) {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		publisher.PublishMerchantAsync(ctx, mid)
+	})
+	decisionSvc := decisionsvc.New(builder, rdb)
+
+	// 启动时把全部站点快照刷一遍，保证 Redis 与数据库一致
+	if rdb != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			n, err := publisher.PublishAll(ctx)
+			if err != nil {
+				rt.Log.Warn("initial snapshot publish", zap.Int("published", n), zap.Error(err))
+			} else {
+				rt.Log.Info("initial snapshots published", zap.Int("sites", n))
+			}
+		}()
+	}
 
 	router := admin.NewRouter(admin.Deps{
 		Cfg: rt.Cfg, Log: rt.Log, Metrics: rt.Metrics,
@@ -57,6 +95,8 @@ func main() {
 		Users:       userSvc,
 		Sites:       siteSvc,
 		Attribution: attrSvc,
+		Decision:    decisionSvc,
+		Publisher:   publisher,
 		Repo:        merchantRepo,
 		Authn:       middleware.NewAuthenticator(tokens, repo, rbacSvc),
 		OpLog:       middleware.NewOperationLogger(repo, rt.Log),

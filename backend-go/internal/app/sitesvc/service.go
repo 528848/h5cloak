@@ -31,6 +31,25 @@ type Service struct {
 	entryHost string
 	uploadDir string
 	publicURL string
+	// changed 在站点配置写入成功后被调用（发布快照），可为 nil
+	changed func(siteID uint64)
+}
+
+// OnChange 注册配置变更回调。
+func (s *Service) OnChange(fn func(siteID uint64)) { s.changed = fn }
+
+func (s *Service) notify(siteID uint64) {
+	if s.changed != nil && siteID > 0 {
+		s.changed(siteID)
+	}
+}
+
+// done 写操作收尾：成功时触发快照发布。
+func (s *Service) done(siteID uint64, err error) error {
+	if err == nil {
+		s.notify(siteID)
+	}
+	return err
 }
 
 func New(repo *mysql.SiteRepo, merchants identity.MerchantRepository, entryHost, uploadDir, publicURL string) *Service {
@@ -104,6 +123,7 @@ func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (
 		return nil, "", err
 	}
 	row["serverSecret"] = sk
+	s.notify(site.ID)
 	return row, sk, nil
 }
 
@@ -126,10 +146,10 @@ func (s *Service) Update(ctx context.Context, merchantID, id uint64, in SiteInpu
 	site.HandoffTokenTTLHours, site.HandoffTokenMaxUses = in.HandoffTokenTTLHours, in.HandoffTokenMaxUses
 	site.HandoffMatchEnabled, site.HandoffMatchMinutes = in.HandoffMatchEnabled, in.HandoffMatchMinutes
 	site.SecretIPAllowlist = allow
-	return s.repo.UpdateSite(ctx, site,
+	return s.done(id, s.repo.UpdateSite(ctx, site,
 		"Name", "SiteType", "Remark", "CookieName", "CookieDomain", "AttributionTTLDays", "RenewMode",
 		"NoAttributionAction", "FailMode", "MinConfidence", "HandoffBanner", "HandoffBannerText", "HandoffLinkRewrite",
-		"HandoffTokenTTLHours", "HandoffTokenMaxUses", "HandoffMatchEnabled", "HandoffMatchMinutes", "SecretIPAllowlist")
+		"HandoffTokenTTLHours", "HandoffTokenMaxUses", "HandoffMatchEnabled", "HandoffMatchMinutes", "SecretIPAllowlist"))
 }
 
 func (s *Service) ChangeStatus(ctx context.Context, merchantID, id uint64, status string, platform bool) error {
@@ -150,14 +170,14 @@ func (s *Service) ChangeStatus(ctx context.Context, merchantID, id uint64, statu
 		return err
 	}
 	site.Status = status
-	return s.repo.UpdateSite(ctx, site, "Status")
+	return s.done(id, s.repo.UpdateSite(ctx, site, "Status"))
 }
 
 func (s *Service) Delete(ctx context.Context, merchantID, id uint64) error {
 	if _, err := s.owned(ctx, merchantID, id); err != nil {
 		return err
 	}
-	return s.repo.DeleteSite(ctx, id)
+	return s.done(id, s.repo.DeleteSite(ctx, id))
 }
 
 func (s *Service) Get(ctx context.Context, merchantID, id uint64) (map[string]any, error) {
@@ -253,7 +273,58 @@ func (s *Service) ResetSecret(ctx context.Context, merchantID, id uint64, allow 
 	if err := s.repo.UpdateSite(ctx, site, "SecretPrefix", "SecretHash", "SecretIPAllowlist"); err != nil {
 		return "", err
 	}
+	s.notify(id)
 	return sk, nil
+}
+
+// RotateTokenKey 轮换访客令牌签名密钥：新密钥 active，旧密钥进入宽限期。
+// graceHours 为 0 时旧密钥立即失效（等同「强制全部访客重新归因」）。
+func (s *Service) RotateTokenKey(ctx context.Context, merchantID, id uint64, graceHours int) (map[string]any, error) {
+	site, err := s.owned(ctx, merchantID, id)
+	if err != nil {
+		return nil, err
+	}
+	if graceHours < 0 || graceHours > 24*30 {
+		return nil, errf(400, "宽限期须在 0-720 小时之间")
+	}
+	type key struct {
+		Version   int        `json:"version"`
+		Key       string     `json:"key"`
+		Status    string     `json:"status"`
+		ExpiresAt *time.Time `json:"expiresAt,omitempty"`
+	}
+	var keys []key
+	_ = json.Unmarshal(site.TokenKeys, &keys)
+	now := time.Now()
+	next := site.TokenKeyVersion + 1
+	kept := make([]key, 0, len(keys)+1)
+	for _, k := range keys {
+		if k.Version >= next {
+			next = k.Version + 1
+		}
+		// 已过期的宽限密钥丢弃
+		if k.ExpiresAt != nil && now.After(*k.ExpiresAt) {
+			continue
+		}
+		if k.Status == "active" {
+			if graceHours == 0 {
+				continue
+			}
+			exp := now.Add(time.Duration(graceHours) * time.Hour)
+			k.Status = "grace"
+			k.ExpiresAt = &exp
+		}
+		kept = append(kept, k)
+	}
+	kept = append(kept, key{Version: next, Key: randHex(32), Status: "active"})
+	raw, _ := json.Marshal(kept)
+	site.TokenKeyVersion = next
+	site.TokenKeys = raw
+	if err := s.repo.UpdateSite(ctx, site, "TokenKeyVersion", "TokenKeys"); err != nil {
+		return nil, err
+	}
+	s.notify(id)
+	return map[string]any{"keyVersion": next, "graceHours": graceHours, "keyCount": len(kept)}, nil
 }
 
 type OriginInput struct {
@@ -280,10 +351,10 @@ func (s *Service) SaveOrigin(ctx context.Context, merchantID, siteID uint64, in 
 	if in.TimeoutMs > 60000 {
 		in.TimeoutMs = 60000
 	}
-	return s.repo.UpsertOrigin(ctx, &domainsite.Origin{
+	return s.done(siteID, s.repo.UpsertOrigin(ctx, &domainsite.Origin{
 		SiteID: siteID, Kind: in.Kind, URL: in.URL, HostHeader: strPtr(in.HostHeader), TimeoutMs: in.TimeoutMs,
 		HealthStatus: domainsite.HealthUnknown,
-	})
+	}))
 }
 
 func (s *Service) ProbeOrigin(ctx context.Context, merchantID, siteID uint64, kind string) (map[string]any, error) {
@@ -375,7 +446,7 @@ func (s *Service) SaveReview(ctx context.Context, merchantID, siteID uint64, in 
 	default:
 		return errf(400, "审核内容来源无效")
 	}
-	return s.repo.SaveReview(ctx, row)
+	return s.done(siteID, s.repo.SaveReview(ctx, row))
 }
 
 func (s *Service) Templates(ctx context.Context) ([]map[string]any, error) {
@@ -474,6 +545,7 @@ func (s *Service) UploadPackage(ctx context.Context, merchantID, siteID uint64, 
 		return nil, err
 	}
 	_ = s.repo.SaveReview(ctx, &domainsite.ReviewContent{SiteID: siteID, Source: domainsite.ReviewStatic, StaticPackageID: &pkg.ID})
+	s.notify(siteID)
 	return map[string]any{
 		"packageId": pkg.ID, "version": ver, "entry": entry,
 		"previewUrl": fmt.Sprintf("%s/uploads/sites/%d/static/%d/%s", s.publicURL, siteID, ver, entry),
@@ -499,7 +571,7 @@ func (s *Service) ReplaceRules(ctx context.Context, merchantID, siteID uint64, r
 			return errf(400, "路径不能为空")
 		}
 	}
-	return s.repo.ReplacePathRules(ctx, siteID, rules)
+	return s.done(siteID, s.repo.ReplacePathRules(ctx, siteID, rules))
 }
 
 type DomainInput struct {
@@ -555,6 +627,7 @@ func (s *Service) AddDomain(ctx context.Context, merchantID, siteID uint64, in D
 	if err := s.repo.CreateDomain(ctx, d); err != nil {
 		return nil, err
 	}
+	s.notify(siteID)
 	return domainRow(d, ""), nil
 }
 
@@ -577,6 +650,7 @@ func (s *Service) VerifyDomain(ctx context.Context, merchantID, id uint64, platf
 		if err := s.repo.UpdateDomain(ctx, d, "Status", "VerifyMessage", "LastCheckedAt"); err != nil {
 			return nil, err
 		}
+		s.notify(d.SiteID)
 		return domainRow(d, ""), nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
@@ -626,6 +700,7 @@ func (s *Service) VerifyDomain(ctx context.Context, merchantID, id uint64, platf
 	if err := s.repo.UpdateDomain(ctx, d, "Status", "VerifyMessage", "LastCheckedAt", "HealthStatus"); err != nil {
 		return nil, err
 	}
+	s.notify(d.SiteID)
 	return domainRow(d, msg), nil
 }
 
@@ -634,7 +709,7 @@ func (s *Service) DeleteDomain(ctx context.Context, merchantID, id uint64) error
 	if err != nil || d.MerchantID != merchantID {
 		return errf(404, "域名不存在")
 	}
-	return s.repo.DeleteDomain(ctx, id)
+	return s.done(d.SiteID, s.repo.DeleteDomain(ctx, id))
 }
 
 func (s *Service) ListDomains(ctx context.Context, merchantID, siteID uint64, keyword, status string, page, size int) ([]map[string]any, int64, error) {
@@ -720,7 +795,8 @@ func brief(site *domainsite.Site) map[string]any {
 		"handoffBanner": site.HandoffBanner, "handoffBannerText": site.HandoffBannerText, "handoffLinkRewrite": site.HandoffLinkRewrite,
 		"handoffTokenTtlHours": site.HandoffTokenTTLHours, "handoffTokenMaxUses": site.HandoffTokenMaxUses,
 		"handoffMatchEnabled": site.HandoffMatchEnabled, "handoffMatchMinutes": site.HandoffMatchMinutes,
-		"createdAt": site.CreatedAt.Format("2006-01-02 15:04:05"),
+		"tokenKeyVersion": site.TokenKeyVersion,
+		"createdAt":       site.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
 }
 

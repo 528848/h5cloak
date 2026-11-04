@@ -26,10 +26,45 @@ type Service struct {
 	repo      *mysql.AttributionRepo
 	sites     *mysql.SiteRepo
 	merchants identity.MerchantRepository
+	changed   func(siteID uint64) // 站点级变更
+	changeAll func()              // 内置字典变更，影响全部站点
 }
 
 func New(repo *mysql.AttributionRepo, sites *mysql.SiteRepo, merchants identity.MerchantRepository) *Service {
 	return &Service{repo: repo, sites: sites, merchants: merchants}
+}
+
+// OnChange 注册配置变更回调。
+func (s *Service) OnChange(site func(siteID uint64), all func()) {
+	s.changed, s.changeAll = site, all
+}
+
+func (s *Service) notify(siteID uint64) {
+	if s.changed != nil && siteID > 0 {
+		s.changed(siteID)
+	}
+}
+
+func (s *Service) notifyAll() {
+	if s.changeAll != nil {
+		s.changeAll()
+	}
+}
+
+// notifyCodes 按码 ID 找到涉及的站点并通知。
+func (s *Service) notifyCodes(ctx context.Context, ids []uint64) {
+	if s.changed == nil {
+		return
+	}
+	seen := map[uint64]bool{}
+	for _, id := range ids {
+		c, err := s.repo.FindCode(ctx, id)
+		if err != nil || seen[c.SiteID] {
+			continue
+		}
+		seen[c.SiteID] = true
+		s.changed(c.SiteID)
+	}
 }
 
 func errf(code int, msg string) error { return &authsvc.Error{Code: code, Msg: msg} }
@@ -127,6 +162,7 @@ func (s *Service) SaveParam(ctx context.Context, merchantID, siteID uint64, in P
 	default:
 		return nil, err
 	}
+	s.notify(siteID)
 	return paramRow(p), nil
 }
 
@@ -139,7 +175,11 @@ func (s *Service) DeleteParam(ctx context.Context, merchantID, siteID, id uint64
 	if err != nil || p.SiteID != siteID {
 		return errf(404, "参数不存在")
 	}
-	return s.repo.DeleteParam(ctx, id)
+	if err := s.repo.DeleteParam(ctx, id); err != nil {
+		return err
+	}
+	s.notify(siteID)
+	return nil
 }
 
 // Builtins 平台内置参数（总后台）。
@@ -166,6 +206,7 @@ func (s *Service) CreateBuiltin(ctx context.Context, in ParamInput) (map[string]
 	if err := s.repo.CreateParam(ctx, p); err != nil {
 		return nil, err
 	}
+	s.notifyAll()
 	return paramRow(p), nil
 }
 
@@ -180,7 +221,11 @@ func (s *Service) UpdateBuiltin(ctx context.Context, id uint64, in ParamInput) e
 		return err
 	}
 	p.ID = existing.ID
-	return s.repo.UpdateParam(ctx, p, "ParamType", "Platform", "Aliases", "MinLen", "MaxLen", "Pattern", "Sufficient", "Status", "Sort", "Remark")
+	if err := s.repo.UpdateParam(ctx, p, "ParamType", "Platform", "Aliases", "MinLen", "MaxLen", "Pattern", "Sufficient", "Status", "Sort", "Remark"); err != nil {
+		return err
+	}
+	s.notifyAll()
+	return nil
 }
 
 func (s *Service) DeleteBuiltin(ctx context.Context, id uint64) error {
@@ -188,7 +233,11 @@ func (s *Service) DeleteBuiltin(ctx context.Context, id uint64) error {
 	if err != nil || existing.SiteID != 0 {
 		return errf(404, "参数不存在")
 	}
-	return s.repo.DeleteParam(ctx, id)
+	if err := s.repo.DeleteParam(ctx, id); err != nil {
+		return err
+	}
+	s.notifyAll()
+	return nil
 }
 
 func (s *Service) buildParam(ctx context.Context, siteID uint64, in ParamInput) (*attribution.Param, error) {
@@ -314,12 +363,16 @@ func (s *Service) SaveRule(ctx context.Context, merchantID, siteID uint64, in Ru
 		sources = append(sources, src)
 	}
 	raw, _ := json.Marshal(sources)
-	return s.repo.SaveRule(ctx, &attribution.Rule{
+	if err := s.repo.SaveRule(ctx, &attribution.Rule{
 		SiteID: siteID, CombineRule: in.CombineRule, ValidateCodes: in.ValidateCodes,
 		ValidateClickFormat: in.ValidateClickFormat, AllowedSources: raw,
 		ClickReuseLimit: in.ClickReuseLimit, ClickReuseWindowHours: in.ClickReuseWindowHours,
 		ClickReuseAction: in.ClickReuseAction, CodeRevokeMode: in.CodeRevokeMode,
-	})
+	}); err != nil {
+		return err
+	}
+	s.notify(siteID)
+	return nil
 }
 
 // ---- 分销码 ----
@@ -403,6 +456,7 @@ func (s *Service) CreateCode(ctx context.Context, merchantID, userID uint64, in 
 	if err := s.repo.CreateCode(ctx, c); err != nil {
 		return nil, err
 	}
+	s.notify(in.SiteID)
 	return codeRow(c, time.Now()), nil
 }
 
@@ -418,18 +472,39 @@ func (s *Service) UpdateCode(ctx context.Context, merchantID, id uint64, in Code
 		return err
 	}
 	next.ID = c.ID
-	return s.repo.UpdateCode(ctx, next, "CodeType", "Name", "Channel", "Status", "StartsAt", "ExpiresAt", "AllowedPaths", "Remark")
+	if err := s.repo.UpdateCode(ctx, next, "CodeType", "Name", "Channel", "Status", "StartsAt", "ExpiresAt", "AllowedPaths", "Remark"); err != nil {
+		return err
+	}
+	s.notify(c.SiteID)
+	return nil
 }
 
 func (s *Service) ChangeCodesStatus(ctx context.Context, merchantID uint64, ids []uint64, status string) (int64, error) {
 	if status != attribution.StatusEnabled && status != attribution.StatusDisabled {
 		return 0, errf(400, "状态无效")
 	}
-	return s.repo.UpdateCodesStatus(ctx, merchantID, ids, status)
+	n, err := s.repo.UpdateCodesStatus(ctx, merchantID, ids, status)
+	if err == nil {
+		s.notifyCodes(ctx, ids)
+	}
+	return n, err
 }
 
 func (s *Service) DeleteCodes(ctx context.Context, merchantID uint64, ids []uint64) (int64, error) {
-	return s.repo.DeleteCodes(ctx, merchantID, ids)
+	// 删除前先找出站点，删除后再通知
+	seen := map[uint64]bool{}
+	for _, id := range ids {
+		if c, err := s.repo.FindCode(ctx, id); err == nil && c.MerchantID == merchantID {
+			seen[c.SiteID] = true
+		}
+	}
+	n, err := s.repo.DeleteCodes(ctx, merchantID, ids)
+	if err == nil {
+		for sid := range seen {
+			s.notify(sid)
+		}
+	}
+	return n, err
 }
 
 type GenerateInput struct {
@@ -509,6 +584,7 @@ func (s *Service) GenerateCodes(ctx context.Context, merchantID, userID uint64, 
 	if err != nil {
 		return nil, err
 	}
+	s.notify(in.SiteID)
 	sample := make([]string, 0, 5)
 	for i := 0; i < len(rows) && i < 5; i++ {
 		sample = append(sample, rows[i].Code)
@@ -612,6 +688,7 @@ func (s *Service) ImportCodes(ctx context.Context, merchantID, userID uint64, in
 	if err != nil {
 		return nil, err
 	}
+	s.notify(in.SiteID)
 	if conflicts == nil {
 		conflicts = []conflict{}
 	}

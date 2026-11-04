@@ -130,6 +130,7 @@ func menuDefs() []menuDef {
 		{Key: "m.code.status", Parent: "m.code", Portal: merchant, Name: "分销码状态", Type: "F", Perms: "attribution:code:status", Roles: writers},
 		{Key: "m.code.remove", Parent: "m.code", Portal: merchant, Name: "分销码删除", Type: "F", Perms: "attribution:code:remove", Roles: writers},
 		{Key: "m.code.export", Parent: "m.code", Portal: merchant, Name: "分销码导出", Type: "F", Perms: "attribution:code:export", Roles: allMerchant},
+		{Key: "m.decisionTest", Portal: merchant, Name: "判定测试", Path: "/merchant/decision-test", Component: "merchant/decision-test", Type: "C", Perms: "attribution:test:run", Icon: "search", Sort: 128, Visible: true, Roles: allMerchant},
 		{Key: "m.link", Portal: merchant, Name: "链接生成器", Path: "/merchant/link", Component: "merchant/link", Type: "C", Perms: "attribution:link:build", Icon: "link", Sort: 126, Visible: true, Roles: allMerchant},
 		{Key: "m.cloak", Portal: merchant, Name: "斗篷列表", Path: "/merchant/cloak", Component: "merchant/cloak", Type: "C", Perms: "cloak:strategy:list", Icon: "system", Sort: 130, Visible: true, Roles: allMerchant},
 		{Key: "m.cloak.add", Parent: "m.cloak", Portal: merchant, Name: "斗篷新增", Type: "F", Perms: "cloak:strategy:add", Roles: writers},

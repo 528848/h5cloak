@@ -10,8 +10,10 @@ import (
 
 	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
+	"cloak/internal/app/decisionsvc"
 	"cloak/internal/app/merchantsvc"
 	"cloak/internal/app/sitesvc"
+	"cloak/internal/app/snapshotsvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/config"
 	"cloak/internal/domain/identity"
@@ -34,6 +36,8 @@ type Deps struct {
 	Users       *usersvc.Service
 	Sites       *sitesvc.Service
 	Attribution *attrsvc.Service
+	Decision    *decisionsvc.Service
+	Publisher   *snapshotsvc.Publisher
 	Repo        identity.MerchantRepository
 	Authn       *middleware.Authenticator
 	OpLog       *middleware.OperationLogger
@@ -169,6 +173,18 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.POST("/param", middleware.RequirePerm("attribution:param:edit"), xh.createBuiltin)
 		adminG.PUT("/param/:id", middleware.RequirePerm("attribution:param:edit"), xh.updateBuiltin)
 		adminG.DELETE("/param/:id", middleware.RequirePerm("attribution:param:edit"), xh.deleteBuiltin)
+	}
+
+	if d.Decision != nil && d.Publisher != nil && d.Sites != nil {
+		dh := &decisionHandler{svc: d.Decision, sites: d.Sites, pub: d.Publisher}
+		merchantG.POST("/decision/test", middleware.RequirePerm("attribution:test:run"), dh.test)
+		merchantG.GET("/snapshot/status", middleware.RequirePerm("site:site:list"), dh.status)
+		merchantG.POST("/snapshot/:id/publish", middleware.RequirePerm("site:site:edit"), dh.publish)
+		merchantG.POST("/site/:id/rotate-key", middleware.RequirePerm("site:site:secret"), dh.rotateKey)
+
+		adminG.GET("/snapshot/status", middleware.RequirePerm("site:site:list"), dh.status)
+		adminG.POST("/snapshot/:id/publish", middleware.RequirePerm("site:site:status"), dh.publish)
+		adminG.POST("/snapshot/publish-all", middleware.RequirePerm("site:site:status"), dh.publishAll)
 	}
 
 	uh := &userHandler{svc: d.Users}

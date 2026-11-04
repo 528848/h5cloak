@@ -10,8 +10,8 @@
 | I1 | 认证与权限 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i1`（654b3ce） |
 | I2 | 商户与额度 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i2`（b2dee42） |
 | I3 | 站点、域名、源站、审核内容 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i3`（4ef7ec8） |
-| I4 | 归因规则与分销码 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i4`（1278261） |
-| I5 | 配置快照与判定引擎 | 未开始 | | | |
+| I4 | 归因规则与分销码 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i4`（1278261） |
+| I5 | 配置快照与判定引擎 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i5` |
 | I6 | 托管反向代理与证书 | 未开始 | | | |
 | I7 | 决策日志与归因管道 | 未开始 | | | |
 | I8 | 服务端判定接口 v2 与 V1 兼容 | 未开始 | | | |
@@ -23,7 +23,35 @@
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I4 归因规则与分销码
+## 当前迭代：I5 配置快照与判定引擎
+
+- [x] `internal/engine`：纯函数引擎，输入 `RequestContext` + 站点快照，输出 `Decision`；Redis 能力通过 `Store` 接口注入，自带 `MemStore`
+- [x] 快照 `engine/snapshot`：JSON 结构 + `Compile()` 预编译（参数别名表、码表、正则、密钥、路径规则排序、域名索引）；网关侧 `Store` 懒加载、Host 索引、负缓存、按 revision 增量替换
+- [x] 访客令牌 `engine/token`：`v1.<payload>.<hmac>`，密钥版本、宽限期验签、轮换后换发、跨站点拒绝
+- [x] 路径规则、参数提取（别名、去重、类型排序）、校验（登记/停用/过期/未生效/路径/格式/来源/参数停用/点击复用）、组合规则、置信度、渠道推断
+- [x] `Decide()` 顺序：站点状态 → 路径规则 → 令牌 → 参数 → 首访 / 回访 / 交接 token / 交接匹配 / 无归因；回访按 sliding/fixed 续期；内置浏览器首访签发交接 token 并登记匹配候选
+- [x] UA 识别 `engine/ua`：Facebook/Instagram/TikTok/Snapchat/Twitter/LinkedIn/Line/微信/Kwai 等内置浏览器，iOS/Android 设备族
+- [x] 快照构建与发布 `app/snapshotsvc`：站点/域名/源站/审核内容/路径规则/参数（站点覆盖内置）/规则/分销码 → `cfg:site:{id}`、`host:{domain}`、`cfg:changed`
+- [x] 管理端所有站点级写操作（站点、源站、审核内容、路径规则、域名、参数、规则、分销码、商户状态、内置字典）成功后异步发布；admin 启动时全量刷新
+- [x] 网关：Redis 订阅 `cfg:changed` 增量替换；按 Host 找站点 → 判定 → 写 Cookie → 返回判定 JSON（I6 替换为回源）；`/_cloak/status` 上报各站点 revision；可信代理 XFF
+- [x] 访客令牌密钥轮换接口（宽限期可配，0 等于强制全部重新归因）；判定测试接口（dry run）与快照状态接口
+- [x] 前端：商户端「判定测试」页（模拟访问 + 配置快照状态 + 结果/校验失败/判定过程/Cookie）；站点配置页新增访客令牌密钥轮换
+- [x] 单测：`go test ./internal/engine/...` 合计覆盖 88.3%（engine 88.6 / params 77.7 / pathrule 100 / snapshot 93.5 / token 90.9 / ua 96.8），网关 92.6%
+- [x] 端到端冒烟 16 项：登记分销码后网关 343ms 内从 review 变为 real；停用码后新访客 review、老 Cookie 仍放行；路径规则；内置浏览器 + 点击参数 → high + 交接 token；新浏览器带 `_ck` → handoff；密钥轮换宽限期内老 Cookie 放行并换发；站点停用；删站后 404
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I5 验收步骤
+
+1. `go test ./internal/engine/... -cover`：全部通过，engine 包覆盖率 ≥ 85%。
+2. 启动 admin 与 gateway（`scripts/dev/start-service.ps1 -Name gateway -Background`），`curl http://127.0.0.1:8090/_cloak/status` 能看到已加载站点的 revision。
+3. 商户端为站点添加自有域名并校验，用 `curl -H "Host: 该域名" http://127.0.0.1:8090/lp?ref=XXX` 访问：未登记码返回 `content=review`、`validationErrors[0].reason=not_registered`。
+4. 在「分销码」登记 `XXX` 后 5 秒内再次请求，返回 `content=real`、`touchType=first` 且有 `Set-Cookie: _ck_vid=v1....`；带该 Cookie 访问无参数路径返回 `touchType=return`。
+5. 停用该码后新访客变为 `review`（原因 `disabled`），带老 Cookie 仍为 `real`。
+6. 商户端「判定测试」页：选站点、填地址 `https://域名/lp?ref=XXX`、选「iPhone Facebook 内置浏览器」，结果为真实内容 / 首访 / 置信度高，判定过程逐步可见；配置快照卡片显示「一致」。
+7. 站点配置页「轮换（宽限 72 小时）」后老 Cookie 仍放行且响应带新 Cookie；「强制全部重新归因」后老 Cookie 变为 review。
+8. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I4 归因规则与分销码
 
 - [x] 迁移 `20261104000003`：`attribution_params`（内置行 `site_id=0`，站点行覆盖同名内置行）、`site_attribution_rules`、`promo_codes`（站点内唯一）
 - [x] 内置字典 19 个：fbclid、gclid、gbraid、wbraid、ttclid、twclid、msclkid、kwai_click_id、kwaiclickid、kpid、sclid、li_fat_id、utm_* 五个、`ref`（别名 r/aff/affiliate/referral）、`cid`（别名 campaign/promo），各带长度与正则
@@ -47,7 +75,7 @@
 6. 总后台 `http://127.0.0.1:5173/admin/param`：新增内置参数后，商户端参数字典立即出现；删除后消失。
 7. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
 
-## 上一迭代记录：I3 站点、域名、源站、审核内容
+## 更早迭代记录：I3 站点、域名、源站、审核内容
 
 - [x] 迁移 `20261104000002`：站点、源站、审核内容、模板、静态包、域名、路径规则；内置商城与企业官网两个模板
 - [x] 站点：创建时一次性返回服务端密钥，详情只保留前缀；公钥、Cookie、归因窗口、无归因动作、失败兜底、跨浏览器接力、密钥 IP 白名单
@@ -137,6 +165,9 @@
 | T4 | 管理 API CORS 当前放行任意 Origin，生产由 Nginx 收紧 | I14 部署时处理 |
 | T5 | 头像与审核静态包都存在本地目录，多节点部署需切对象存储 | I6 接入对象存储后切换 |
 | T6 | 工具链固定 Go 1.23；`go get @latest` 会把 go.mod 拉到新版本，执行时需 `GOTOOLCHAIN=local` | 已在脚本中设置 |
+| T7 | 快照用 JSON 而非压缩 MsgPack；大站点（> 10 万码）快照会膨胀 | I7 或压测后按技术方案 7 节改为哈希集合 + Redis 详情 |
+| T8 | 网关在 I6 之前对站点请求返回判定 JSON 而非回源内容 | I6 接入反向代理后替换 |
+| T9 | 广告 Referer 域名表与内置浏览器 UA 特征写死在代码里 | I12 移到 `cfg:global` 由总后台维护 |
 
 ## 环境与资源
 
