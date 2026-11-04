@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"bytes"
+	"compress/gzip"
 	"html"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -51,13 +53,16 @@ func openInBrowserHref(target string, osName string) string {
 	return target
 }
 
+// BannerDismissedCookie 访客关闭引导条后写的会话 cookie。
+var BannerDismissedCookie = bannerShown
+
 // injectHTML 在 </body> 前注入引导条，并可对同域链接追加 _ck。
-// 只对完整的 HTML 文档处理；找不到 </body> 时追加到末尾。
-func injectHTML(body []byte, site *snapshot.Site, current *url.URL, token, osName string, rewriteLinks bool) []byte {
+// 只对完整的 HTML 文档处理；找不到 </body> 时追加到末尾。showBanner=false 时只做链接延续。
+func injectHTML(body []byte, site *snapshot.Site, current *url.URL, token, osName string, rewriteLinks, showBanner bool) []byte {
 	if rewriteLinks && token != "" {
 		body = appendTokenToLinks(body, current, token)
 	}
-	if site.Handoff.Banner && token != "" {
+	if showBanner && site.Handoff.Banner && token != "" {
 		text := site.Handoff.BannerText
 		if text == "" {
 			text = "在浏览器中打开，继续访问"
@@ -109,6 +114,31 @@ func appendTokenToLinks(body []byte, current *url.URL, token string) []byte {
 	body = hrefAttrRe.ReplaceAllFunc(body, func(m []byte) []byte { return fix(m, hrefAttrRe) })
 	body = formActRe.ReplaceAllFunc(body, func(m []byte) []byte { return fix(m, formActRe) })
 	return body
+}
+
+// bannerDismissed 用户关闭过引导条（会话 cookie）。
+func bannerDismissed(r *http.Request) bool {
+	c, err := r.Cookie(bannerShown)
+	return err == nil && c.Value != ""
+}
+
+func acceptsGzip(r *http.Request) bool {
+	return strings.Contains(strings.ToLower(r.Header.Get("Accept-Encoding")), "gzip")
+}
+
+func gzipBytes(b []byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw, err := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := zw.Write(b); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // isHTML 判断响应是否 HTML 文档。

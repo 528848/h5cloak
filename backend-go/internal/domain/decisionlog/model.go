@@ -29,6 +29,7 @@ type Event struct {
 	InAppBrowser         string     `json:"inapp,omitempty"`
 	DeviceFamily         string     `json:"dev,omitempty"`
 	HandoffKind          string     `json:"handoff,omitempty"`
+	HandoffFromRequestID string     `json:"handoffFrom,omitempty"`
 	Channel              string     `json:"ch,omitempty"`
 	CodeID               uint64     `json:"cid,omitempty"`
 	Code                 string     `json:"code,omitempty"`

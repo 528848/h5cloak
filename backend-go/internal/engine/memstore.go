@@ -16,14 +16,14 @@ type MemStore struct {
 }
 
 type memHandoff struct {
-	attributionID, visitorID string
-	used, maxUses            int
-	expiresAt                time.Time
+	ref           HandoffRef
+	used, maxUses int
+	expiresAt     time.Time
 }
 
 type memCandidate struct {
-	attributionID, visitorID string
-	at                       time.Time
+	ref HandoffRef
+	at  time.Time
 }
 
 // NewMemStore 创建内存 Store。
@@ -58,35 +58,35 @@ func (m *MemStore) ClickSeen(_ context.Context, siteID uint64, value, ipPrefix s
 	return len(set), nil
 }
 
-func (m *MemStore) HandoffIssue(_ context.Context, siteID uint64, tokenHash, attributionID, visitorID string, maxUses int, ttl time.Duration) error {
+func (m *MemStore) HandoffIssue(_ context.Context, siteID uint64, tokenHash, attributionID, visitorID, fromRequestID string, maxUses int, ttl time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.handoffs[itoa64(siteID)+":"+tokenHash] = &memHandoff{
-		attributionID: attributionID, visitorID: visitorID, maxUses: maxUses, expiresAt: m.now().Add(ttl),
+		ref: HandoffRef{AttributionID: attributionID, VisitorID: visitorID, FromRequestID: fromRequestID}, maxUses: maxUses, expiresAt: m.now().Add(ttl),
 	}
 	return nil
 }
 
-func (m *MemStore) HandoffConsume(_ context.Context, siteID uint64, tokenHash string) (string, string, bool, error) {
+func (m *MemStore) HandoffConsume(_ context.Context, siteID uint64, tokenHash string) (HandoffRef, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	h := m.handoffs[itoa64(siteID)+":"+tokenHash]
 	if h == nil || m.now().After(h.expiresAt) || h.used >= h.maxUses {
-		return "", "", false, nil
+		return HandoffRef{}, false, nil
 	}
 	h.used++
-	return h.attributionID, h.visitorID, true, nil
+	return h.ref, true, nil
 }
 
-func (m *MemStore) HandoffCandidateAdd(_ context.Context, siteID uint64, ipHash, deviceFamily, attributionID, visitorID string, _ time.Duration) error {
+func (m *MemStore) HandoffCandidateAdd(_ context.Context, siteID uint64, ipHash, deviceFamily string, ref HandoffRef, _ time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := itoa64(siteID) + ":" + ipHash + ":" + deviceFamily
-	m.candidates[key] = append(m.candidates[key], memCandidate{attributionID: attributionID, visitorID: visitorID, at: m.now()})
+	m.candidates[key] = append(m.candidates[key], memCandidate{ref: ref, at: m.now()})
 	return nil
 }
 
-func (m *MemStore) HandoffCandidateTake(_ context.Context, siteID uint64, ipHash, deviceFamily string, window time.Duration) (string, string, bool, error) {
+func (m *MemStore) HandoffCandidateTake(_ context.Context, siteID uint64, ipHash, deviceFamily string, window time.Duration) (HandoffRef, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := itoa64(siteID) + ":" + ipHash + ":" + deviceFamily
@@ -96,10 +96,10 @@ func (m *MemStore) HandoffCandidateTake(_ context.Context, siteID uint64, ipHash
 		c := list[i]
 		if now.Sub(c.at) <= window {
 			m.candidates[key] = append(list[:i], list[i+1:]...)
-			return c.attributionID, c.visitorID, true, nil
+			return c.ref, true, nil
 		}
 	}
-	return "", "", false, nil
+	return HandoffRef{}, false, nil
 }
 
 func itoa64(n uint64) string {

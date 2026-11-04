@@ -21,6 +21,7 @@ type Record struct {
 	InAppBrowser         string
 	DeviceFamily         string
 	HandoffKind          string
+	HandoffFromRequestID string
 	Channel              string
 	CodeID               uint64
 	Code                 string

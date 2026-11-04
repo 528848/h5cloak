@@ -214,7 +214,9 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, req Request, ori
 	if d.VisitorID != "" {
 		meta["X-Cloak-Visitor"] = d.VisitorID
 	}
-	injectHTMLNeeded := kind == "real" && d.InApp.InApp && d.HandoffToken != "" && (req.Site.Handoff.Banner || req.Site.Handoff.LinkRewrite)
+	// 用户关闭过引导条（会话 cookie _ck_hb）就不再注入引导条；链接延续不受影响
+	bannerWanted := req.Site.Handoff.Banner && !bannerDismissed(r)
+	injectHTMLNeeded := kind == "real" && d.InApp.InApp && d.HandoffToken != "" && (bannerWanted || req.Site.Handoff.LinkRewrite)
 	rewriteRequest(out, r, target, origin.HostHeader, req.ClientIP, req.Scheme, meta)
 	if injectHTMLNeeded {
 		out.Header.Set("Accept-Encoding", "identity")
@@ -273,7 +275,15 @@ func (p *Proxy) writeResponse(w http.ResponseWriter, r *http.Request, req Reques
 		d := req.Decision
 		current := *r.URL
 		current.Scheme, current.Host = req.Scheme, r.Host
-		raw = injectHTML(raw, req.Site, &current, d.HandoffToken, d.InApp.OS, req.Site.Handoff.LinkRewrite)
+		raw = injectHTML(raw, req.Site, &current, d.HandoffToken, d.InApp.OS, req.Site.Handoff.LinkRewrite, !bannerDismissed(r))
+		// 回源用了 identity，这里由网关自己压缩
+		if acceptsGzip(r) && len(raw) > 1024 {
+			if gz, err := gzipBytes(raw); err == nil {
+				raw = gz
+				h.Set("Content-Encoding", "gzip")
+				h.Add("Vary", "Accept-Encoding")
+			}
+		}
 		h.Del("Content-Length")
 		h.Set("Content-Length", strconv.Itoa(len(raw)))
 		w.WriteHeader(resp.StatusCode)

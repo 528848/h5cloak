@@ -333,7 +333,7 @@ func (h *Handler) emit(rc *engine.RequestContext, d *engine.Decision, start time
 		CreatedAt: rc.Now, RequestID: rc.RequestID, MerchantID: site.MerchantID, SiteID: site.SiteID,
 		Entry: rc.Entry, Method: rc.Method, Host: rc.URL.Host, Path: rc.URL.Path, QueryParamNames: names,
 		TouchType: d.TouchType, Content: d.Content, Attributed: d.Attributed, Confidence: d.Confidence,
-		InAppBrowser: d.InApp.App, DeviceFamily: d.InApp.DeviceFamily, HandoffKind: d.HandoffKind,
+		InAppBrowser: d.InApp.App, DeviceFamily: d.InApp.DeviceFamily, HandoffKind: d.HandoffKind, HandoffFromRequestID: d.HandoffFromReqID,
 		Channel: d.Channel, MatchedParams: d.MatchedParams, ValidationErrors: d.ValidationErrors,
 		VisitorID: d.VisitorID, AttributionID: d.AttributionID,
 		IPHash: engine.HashIP(rc.IP), IPPrefix: engine.IPPrefix(rc.IP), Country: country, OS: d.InApp.OS,

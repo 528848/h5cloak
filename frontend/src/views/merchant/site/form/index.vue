@@ -273,6 +273,15 @@
               >
             </el-form-item>
           </el-col>
+          <el-col v-if="form.handoffMatchEnabled" :md="12" :xs="24">
+            <el-form-item label="只匹配系统浏览器">
+              <el-switch v-model="form.handoffMatchSysOnly" />
+              <span class="field-hint"
+                >开启时新请求须来自 Safari/Chrome 等系统浏览器，避免同一 App
+                内两位访客互相匹配</span
+              >
+            </el-form-item>
+          </el-col>
         </el-row>
       </section-card>
 
@@ -833,6 +842,7 @@
       handoffTokenMaxUses: data.handoffTokenMaxUses,
       handoffMatchEnabled: data.handoffMatchEnabled,
       handoffMatchMinutes: data.handoffMatchMinutes,
+      handoffMatchSysOnly: data.handoffMatchSysOnly ?? true,
       secretIpAllowlistText: (data.secretIpAllowlist || []).join('\n')
     });
     Object.assign(origins.real, emptyOrigin());

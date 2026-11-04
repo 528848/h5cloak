@@ -98,6 +98,7 @@ type SiteInput struct {
 	HandoffTokenTTLHours int
 	HandoffTokenMaxUses  int
 	HandoffMatchEnabled  *bool
+	HandoffMatchSysOnly  *bool
 	HandoffMatchMinutes  int
 	SecretIPAllowlist    []string
 }
@@ -131,7 +132,7 @@ func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (
 		NoAttributionAction: in.NoAttributionAction, FailMode: in.FailMode, MinConfidence: in.MinConfidence,
 		HandoffBanner: *in.HandoffBanner, HandoffBannerText: in.HandoffBannerText, HandoffLinkRewrite: *in.HandoffLinkRewrite,
 		HandoffTokenTTLHours: in.HandoffTokenTTLHours, HandoffTokenMaxUses: in.HandoffTokenMaxUses,
-		HandoffMatchEnabled: *in.HandoffMatchEnabled, HandoffMatchMinutes: in.HandoffMatchMinutes,
+		HandoffMatchEnabled: *in.HandoffMatchEnabled, HandoffMatchMinutes: in.HandoffMatchMinutes, HandoffMatchSysOnly: *in.HandoffMatchSysOnly,
 		TokenKeyVersion: 1, TokenKeys: keys, SecretEnc: s.seal(sk),
 	}
 	review := &domainsite.ReviewContent{Source: domainsite.ReviewTemplate, TemplateVars: []byte(`{"siteName":"","slogan":""}`)}
@@ -165,11 +166,12 @@ func (s *Service) Update(ctx context.Context, merchantID, id uint64, in SiteInpu
 	site.HandoffLinkRewrite = *in.HandoffLinkRewrite
 	site.HandoffTokenTTLHours, site.HandoffTokenMaxUses = in.HandoffTokenTTLHours, in.HandoffTokenMaxUses
 	site.HandoffMatchEnabled, site.HandoffMatchMinutes = *in.HandoffMatchEnabled, in.HandoffMatchMinutes
+	site.HandoffMatchSysOnly = *in.HandoffMatchSysOnly
 	site.SecretIPAllowlist = allow
 	return s.done(id, s.repo.UpdateSite(ctx, site,
 		"Name", "SiteType", "Remark", "CookieName", "CookieDomain", "AttributionTTLDays", "RenewMode",
 		"NoAttributionAction", "FailMode", "MinConfidence", "HandoffBanner", "HandoffBannerText", "HandoffLinkRewrite",
-		"HandoffTokenTTLHours", "HandoffTokenMaxUses", "HandoffMatchEnabled", "HandoffMatchMinutes", "SecretIPAllowlist"))
+		"HandoffTokenTTLHours", "HandoffTokenMaxUses", "HandoffMatchEnabled", "HandoffMatchMinutes", "HandoffMatchSysOnly", "SecretIPAllowlist"))
 }
 
 func (s *Service) ChangeStatus(ctx context.Context, merchantID, id uint64, status string, platform bool) error {
@@ -821,7 +823,7 @@ func brief(site *domainsite.Site) map[string]any {
 		"noAttributionAction": site.NoAttributionAction, "failMode": site.FailMode, "minConfidence": site.MinConfidence,
 		"handoffBanner": site.HandoffBanner, "handoffBannerText": site.HandoffBannerText, "handoffLinkRewrite": site.HandoffLinkRewrite,
 		"handoffTokenTtlHours": site.HandoffTokenTTLHours, "handoffTokenMaxUses": site.HandoffTokenMaxUses,
-		"handoffMatchEnabled": site.HandoffMatchEnabled, "handoffMatchMinutes": site.HandoffMatchMinutes,
+		"handoffMatchEnabled": site.HandoffMatchEnabled, "handoffMatchMinutes": site.HandoffMatchMinutes, "handoffMatchSysOnly": site.HandoffMatchSysOnly,
 		"tokenKeyVersion": site.TokenKeyVersion,
 		"createdAt":       site.CreatedAt.Format("2006-01-02 15:04:05"),
 	}
@@ -899,6 +901,9 @@ func normalize(in SiteInput) SiteInput {
 	}
 	if in.HandoffLinkRewrite == nil {
 		in.HandoffLinkRewrite = boolPtr(false)
+	}
+	if in.HandoffMatchSysOnly == nil {
+		in.HandoffMatchSysOnly = boolPtr(true)
 	}
 	if in.HandoffMatchEnabled == nil {
 		in.HandoffMatchEnabled = boolPtr(true)

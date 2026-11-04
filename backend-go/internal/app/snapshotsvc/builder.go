@@ -51,7 +51,7 @@ func (b *Builder) Build(ctx context.Context, siteID uint64) (*snapshot.Site, err
 		Handoff: snapshot.Handoff{
 			Banner: site.HandoffBanner, BannerText: site.HandoffBannerText, LinkRewrite: site.HandoffLinkRewrite,
 			TokenTTLHours: site.HandoffTokenTTLHours, TokenMaxUses: site.HandoffTokenMaxUses,
-			MatchEnabled: site.HandoffMatchEnabled, MatchMinutes: site.HandoffMatchMinutes,
+			MatchEnabled: site.HandoffMatchEnabled, MatchMinutes: site.HandoffMatchMinutes, MatchSystemOnly: site.HandoffMatchSysOnly,
 		},
 		KeyVersion:     site.TokenKeyVersion,
 		PublishableKey: site.PublishableKey, SecretPrefix: site.SecretPrefix, SecretHash: site.SecretHash, SecretEnc: site.SecretEnc,

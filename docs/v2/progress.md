@@ -14,8 +14,8 @@
 | I5 | 配置快照与判定引擎 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i5`（960cd10） |
 | I6 | 托管反向代理与证书 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i6`（af4145d） |
 | I7 | 决策日志与归因管道 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i7`（3706736） |
-| I8 | 服务端判定接口 v2 与 V1 兼容 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i8`（66ed160） |
-| I9 | 跨浏览器交接 | 未开始 | | | |
+| I8 | 服务端判定接口 v2 与 V1 兼容 | 已完成 | 2026-11-04 | 2026-11-04 | `v2-i8`（66ed160） |
+| I9 | 跨浏览器交接 | 待验收 | 2026-11-04 | 2026-11-04 | `v2-i9` |
 | I10 | WordPress/WooCommerce 插件 v2 与 JS SDK | 未开始 | | | |
 | I11 | 看板、报表、告警、Webhook | 未开始 | | | |
 | I12 | 总后台监管与系统配置 | 未开始 | | | |
@@ -23,7 +23,32 @@
 | I14 | 部署与切换 | 未开始 | | | |
 | I15 | 可选增强层 | 未开始 | | | |
 
-## 当前迭代：I8 服务端判定接口 v2 与 V1 兼容
+## 当前迭代：I9 跨浏览器交接
+
+I5/I6 已落地的部分：内置浏览器 UA 识别与设备族、广告 Referer 表、置信度接入判定、交接令牌签发/`_ck` 消费/次数与过期、同设备匹配候选登记/窗口匹配/一次性消费、引导条注入与站内链接延续、`Accept-Encoding: identity` 回源。本迭代补齐：
+
+- [x] 内置浏览器内的回访（带 Cookie 翻页）同样签发交接令牌，访客在第二页点「用浏览器打开」也能接上
+- [x] 交接记录携带来源请求 ID（令牌与匹配候选都存 `rid`），`Decision.HandoffFromReqID` → 日志 `handoff_from_request_id`（迁移 `20261104000006`），详情页「交接来源」可直接跳到那次放行
+- [x] 站点开关「只匹配系统浏览器」（`handoff_match_system_only`，默认开），关闭后允许 App 内请求参与匹配；站点配置页新增开关
+- [x] 引导条关闭后写会话 Cookie `_ck_hb=1`，之后不再注入引导条，链接延续不受影响
+- [x] 注入 HTML 后按客户端 `Accept-Encoding` 由网关 gzip（源站已被要求 identity），`Vary: Accept-Encoding`
+- [x] UA 样本库补到 20 条（Facebook/Instagram/TikTok/Snapchat/Line/Twitter/LinkedIn/微信/Kwai/Google App，Chrome iOS、Samsung Chrome 等系统浏览器为反例）
+- [x] 单测：回访签发令牌、来源请求 ID 传递、只匹配系统浏览器开关、引导条关闭、gzip
+- [x] `docs/v2/handoff-verification.md`：真实手机五组验证脚本（令牌交接、翻页后交接、同设备匹配、系统浏览器不注入、置信度）与记录模板
+- [x] 本地端到端冒烟 10 组：App 首访有引导条；令牌交接成功且来源指向首访；翻页后令牌来源指向翻页请求；关闭引导条后不注入但链接仍带 `_ck`；令牌第 4 次失效；同 /24 同设备族匹配成功、第二次不匹配、不同设备族不匹配、App 内请求默认不匹配、关闭开关后匹配；系统浏览器直接访问不注入；置信度 App+fbclid 高、Safari+fbclid 中
+- [x] `scripts/dev/check.ps1 -Frontend` 通过
+
+### I9 验收步骤
+
+1. 本地：按 I6 步骤起站点与模拟源站，用 Facebook UA（`[FBAN/FBIOS;FBAV/430.0.0]`）带码访问网关，页面底部有引导条，`href` 含 `_ck=`。
+2. 用 Safari UA 打开该 `_ck` 链接：真实内容；决策日志为「交接 · 令牌」，详情「交接来源」点进去是第 1 步那条。
+3. 用第 1 步的 Cookie、Facebook UA 访问 `/second`：仍有引导条；带 `Cookie: _ck_hb=1` 再访问：没有引导条。
+4. 用 Facebook UA 带码访问（`X-Forwarded-For: 203.0.113.50`，需网关 `trusted_proxies` 含 127.0.0.1），再用 Safari UA 不带参数访问 `/lp`（`X-Forwarded-For: 203.0.113.77`）：真实内容，日志「交接 · 匹配」、置信度低；再来一次：审核内容。
+5. 站点配置页关闭「只匹配系统浏览器」保存后，用 Facebook UA 重复第 4 步的第二次请求：可以匹配。
+6. 真实手机：按 `docs/v2/handoff-verification.md` 在 Facebook / Instagram / TikTok 三个 App 内完成五组测试并填记录模板（需要公网部署）。
+7. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
+
+## 上一迭代记录：I8 服务端判定接口 v2 与 V1 兼容
 
 - [x] 迁移 `20261104000005`：`sites.secret_enc`（AES-256-GCM 加密的服务端密钥，主密钥 `auth.secret_key`，admin 与 gateway 必须一致）、`conversions`（`(merchant_id, order_no, status)` 唯一）、`visitor_emails`
 - [x] 鉴权 `transport/http/openapi`：v2 `X-Cloak-Key`（前缀 12 位）+ `X-Cloak-Timestamp`（±300 秒）+ `X-Cloak-Nonce`（8–64 位，Redis 5 分钟防重放）+ `X-Cloak-Signature`（`HMAC-SHA256(secret, ts\nnonce\nMETHOD\npath\nsha256(body))`）；V1 `X-API-Key` / `Bearer` 常量时间比对；站点停用、密钥无加密副本、IP 白名单；两级限流每密钥 50/秒、每站点 2000/分
@@ -48,7 +73,7 @@
 8. 站点密钥 IP 白名单填一个不含本机的网段后调用 → 403 `ip_not_allowed`。
 9. `scripts/dev/check.ps1 -Frontend` 输出 `CHECK PASSED`。
 
-## 上一迭代记录：I7 决策日志与归因管道
+## 更早迭代记录：I7 决策日志与归因管道
 
 - [x] 迁移 `20261104000004`：`decision_logs`（`request_id` 唯一，回放幂等）、`visitors`、`attributions`（`(site_id, visitor_id)` 唯一）、`usage_counters`、`api_logs`
 - [x] 网关 `internal/logpipe`：环形缓冲（1 万）→ 每 200ms 或 500 条批量 `XADD` 到 `decision_logs` / `attribution_writes`；Redis 写失败切到本地 WAL（`.local/wal/*.wal`，超 256MB 丢最旧），每 3 秒探测恢复后回放并删除文件；写入永不阻塞请求

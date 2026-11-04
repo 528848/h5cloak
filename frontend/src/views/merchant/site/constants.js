@@ -108,6 +108,7 @@ export const emptySiteForm = () => ({
   handoffTokenMaxUses: 3,
   handoffMatchEnabled: true,
   handoffMatchMinutes: 15,
+  handoffMatchSysOnly: true,
   secretIpAllowlistText: ''
 });
 
@@ -129,6 +130,7 @@ export const siteToPayload = (form) => ({
   handoffTokenMaxUses: Number(form.handoffTokenMaxUses) || 3,
   handoffMatchEnabled: !!form.handoffMatchEnabled,
   handoffMatchMinutes: Number(form.handoffMatchMinutes) || 15,
+  handoffMatchSysOnly: !!form.handoffMatchSysOnly,
   secretIpAllowlist: String(form.secretIpAllowlistText || '')
     .split(/[\s,]+/)
     .map((s) => s.trim())

@@ -176,7 +176,7 @@ func brief(r *decisionlog.Record) map[string]any {
 		"requestId": r.RequestID, "createdAt": r.CreatedAt.Format("2006-01-02 15:04:05.000"), "merchantId": r.MerchantID, "siteId": r.SiteID,
 		"entry": r.Entry, "method": r.Method, "host": r.Host, "path": r.Path, "touchType": r.TouchType, "content": r.Content,
 		"attributed": r.Attributed, "confidence": r.Confidence, "inAppBrowser": r.InAppBrowser, "deviceFamily": r.DeviceFamily,
-		"handoffKind": r.HandoffKind, "channel": r.Channel, "codeId": r.CodeID, "code": r.Code, "matchedParams": mp,
+		"handoffKind": r.HandoffKind, "handoffFromRequestId": r.HandoffFromRequestID, "channel": r.Channel, "codeId": r.CodeID, "code": r.Code, "matchedParams": mp,
 		"errorReasons": reasons, "visitorId": r.VisitorID, "attributionExpiresAt": fmtTime(r.AttributionExpiresAt),
 		"country": r.Country, "os": r.OS, "pathRule": r.PathRule, "originKind": r.OriginKind, "originStatus": r.OriginStatus,
 		"fallback": r.Fallback, "latencyMs": r.LatencyMs, "degraded": r.Degraded,

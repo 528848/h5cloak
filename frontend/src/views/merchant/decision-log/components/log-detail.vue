@@ -167,6 +167,21 @@
                 <el-descriptions-item label="命中路径规则">{{
                   data.pathRule || '-'
                 }}</el-descriptions-item>
+                <el-descriptions-item v-if="data.handoffKind" label="交接来源">
+                  <span class="muted-text">{{
+                    data.handoffKind === 'token' ? '交接令牌' : '同设备匹配'
+                  }}</span>
+                  <el-link
+                    v-if="data.handoffFromRequestId"
+                    type="primary"
+                    underline="never"
+                    class="mono"
+                    style="margin-left: 8px"
+                    @click="load(data.handoffFromRequestId)"
+                  >
+                    {{ data.handoffFromRequestId }}
+                  </el-link>
+                </el-descriptions-item>
                 <el-descriptions-item label="IP 前缀"
                   ><span class="mono">{{
                     data.ipPrefix || '-'

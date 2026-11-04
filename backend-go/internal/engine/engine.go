@@ -81,6 +81,7 @@ type Decision struct {
 	MatchedParams    []string            `json:"matchedParams"`
 	ValidationErrors []params.ParamError `json:"validationErrors"`
 	HandoffKind      string              `json:"handoffKind,omitempty"` // token / match
+	HandoffFromReqID string              `json:"handoffFromRequestId,omitempty"`
 	InApp            ua.Info             `json:"inAppBrowser"`
 	PathRule         *snapshot.PathRule  `json:"pathRule,omitempty"`
 	Trace            []TraceStep         `json:"trace"`
@@ -103,14 +104,21 @@ type Decision struct {
 type Store interface {
 	// ClickSeen 记录点击参数值出现，返回该值在窗口内的不同 IP 前缀数
 	ClickSeen(ctx context.Context, siteID uint64, value, ipPrefix string, window time.Duration) (int, error)
-	// HandoffIssue 登记交接 token
-	HandoffIssue(ctx context.Context, siteID uint64, tokenHash, attributionID, visitorID string, maxUses int, ttl time.Duration) error
+	// HandoffIssue 登记交接 token（fromRequestID 为签发它的那次放行请求）
+	HandoffIssue(ctx context.Context, siteID uint64, tokenHash, attributionID, visitorID, fromRequestID string, maxUses int, ttl time.Duration) error
 	// HandoffConsume 消费交接 token；ok=false 表示不存在、超次或过期
-	HandoffConsume(ctx context.Context, siteID uint64, tokenHash string) (attributionID, visitorID string, ok bool, err error)
+	HandoffConsume(ctx context.Context, siteID uint64, tokenHash string) (ref HandoffRef, ok bool, err error)
 	// HandoffCandidateAdd 登记跨浏览器匹配候选
-	HandoffCandidateAdd(ctx context.Context, siteID uint64, ipHash, deviceFamily, attributionID, visitorID string, window time.Duration) error
+	HandoffCandidateAdd(ctx context.Context, siteID uint64, ipHash, deviceFamily string, ref HandoffRef, window time.Duration) error
 	// HandoffCandidateTake 取出并消费窗口内最近一条候选
-	HandoffCandidateTake(ctx context.Context, siteID uint64, ipHash, deviceFamily string, window time.Duration) (attributionID, visitorID string, ok bool, err error)
+	HandoffCandidateTake(ctx context.Context, siteID uint64, ipHash, deviceFamily string, window time.Duration) (ref HandoffRef, ok bool, err error)
+}
+
+// HandoffRef 交接指向的归因与来源请求。
+type HandoffRef struct {
+	AttributionID string
+	VisitorID     string
+	FromRequestID string
 }
 
 // Engine 判定引擎。
@@ -196,7 +204,7 @@ func (e *Engine) Decide(ctx context.Context, rc *RequestContext) Decision {
 	}
 	hasToken := tokErr == nil && tok != nil
 	if hasToken {
-		e.returning(rc, &d, tok)
+		e.returning(ctx, rc, &d, tok)
 		return d
 	}
 	if hv := rc.URL.Query().Get(HandoffParam); hv != "" && e.handoffByToken(ctx, rc, &d, hv) {
@@ -249,7 +257,7 @@ func (e *Engine) attributed(ctx context.Context, rc *RequestContext, d *Decision
 	}
 }
 
-func (e *Engine) returning(rc *RequestContext, d *Decision, tok *token.Payload) {
+func (e *Engine) returning(ctx context.Context, rc *RequestContext, d *Decision, tok *token.Payload) {
 	site := rc.Site
 	d.Content = ContentReal
 	d.Attributed = true
@@ -266,6 +274,10 @@ func (e *Engine) returning(rc *RequestContext, d *Decision, tok *token.Payload) 
 		e.issue(rc, d, tok.VisitorID, tok.AttributionID, &exp)
 	} else {
 		d.TokenExpiresAt = tok.Expiry()
+	}
+	// 内置浏览器内的回访同样提供交接令牌（访客可能在第二页才点「用浏览器打开」）
+	if d.InApp.InApp && e.store != nil && !rc.DryRun {
+		e.issueHandoff(ctx, rc, d)
 	}
 }
 
@@ -294,7 +306,7 @@ func (e *Engine) handoffByToken(ctx context.Context, rc *RequestContext, d *Deci
 	if e.store == nil {
 		return false
 	}
-	aid, vid, ok, err := e.store.HandoffConsume(ctx, rc.Site.SiteID, hashValue(raw))
+	ref, ok, err := e.store.HandoffConsume(ctx, rc.Site.SiteID, hashValue(raw))
 	if err != nil {
 		d.Degraded = true
 		d.trace("handoff_token", "store_error")
@@ -308,11 +320,12 @@ func (e *Engine) handoffByToken(ctx context.Context, rc *RequestContext, d *Deci
 	d.Attributed = true
 	d.TouchType = TouchHandoff
 	d.HandoffKind = "token"
+	d.HandoffFromReqID = ref.FromRequestID
 	d.Confidence = "high"
-	d.VisitorID = vid
-	d.AttributionID = aid
+	d.VisitorID = ref.VisitorID
+	d.AttributionID = ref.AttributionID
 	d.trace("decision", "handoff:token")
-	e.issue(rc, d, vid, aid, nil)
+	e.issue(rc, d, ref.VisitorID, ref.AttributionID, nil)
 	return true
 }
 
@@ -320,12 +333,16 @@ func (e *Engine) handoffByMatch(ctx context.Context, rc *RequestContext, d *Deci
 	if e.store == nil || !rc.IP.IsValid() {
 		return false
 	}
-	// 新请求须是系统浏览器，避免 WebView 内互相匹配
-	if d.InApp.InApp {
+	// 默认要求新请求是系统浏览器，避免 WebView 内两个人互相匹配
+	if d.InApp.InApp && rc.Site.Handoff.MatchSystemOnly {
+		d.trace("handoff_match", "skip:in_app_browser")
 		return false
 	}
 	window := time.Duration(rc.Site.Handoff.MatchMinutes) * time.Minute
-	aid, vid, ok, err := e.store.HandoffCandidateTake(ctx, rc.Site.SiteID, ipHash(rc.IP), d.InApp.DeviceFamily, window)
+	if window <= 0 {
+		window = 15 * time.Minute
+	}
+	ref, ok, err := e.store.HandoffCandidateTake(ctx, rc.Site.SiteID, ipHash(rc.IP), d.InApp.DeviceFamily, window)
 	if err != nil {
 		d.Degraded = true
 		d.trace("handoff_match", "store_error")
@@ -339,11 +356,12 @@ func (e *Engine) handoffByMatch(ctx context.Context, rc *RequestContext, d *Deci
 	d.Attributed = true
 	d.TouchType = TouchHandoff
 	d.HandoffKind = "match"
+	d.HandoffFromReqID = ref.FromRequestID
 	d.Confidence = "low"
-	d.VisitorID = vid
-	d.AttributionID = aid
+	d.VisitorID = ref.VisitorID
+	d.AttributionID = ref.AttributionID
 	d.trace("decision", "handoff:match")
-	e.issue(rc, d, vid, aid, nil)
+	e.issue(rc, d, ref.VisitorID, ref.AttributionID, nil)
 	return true
 }
 
@@ -358,14 +376,19 @@ func (e *Engine) issueHandoff(ctx context.Context, rc *RequestContext, d *Decisi
 	if maxUses <= 0 {
 		maxUses = 3
 	}
-	if err := e.store.HandoffIssue(ctx, site.SiteID, hashValue(raw), d.AttributionID, d.VisitorID, maxUses, ttl); err != nil {
+	if err := e.store.HandoffIssue(ctx, site.SiteID, hashValue(raw), d.AttributionID, d.VisitorID, rc.RequestID, maxUses, ttl); err != nil {
 		d.Degraded = true
 		return
 	}
 	d.HandoffToken = raw
+	// 只登记首访为匹配候选：同一次首访只能被交接一次
 	if site.Handoff.MatchEnabled && d.TouchType == TouchFirst && rc.IP.IsValid() {
 		window := time.Duration(site.Handoff.MatchMinutes) * time.Minute
-		_ = e.store.HandoffCandidateAdd(ctx, site.SiteID, ipHash(rc.IP), d.InApp.DeviceFamily, d.AttributionID, d.VisitorID, window)
+		if window <= 0 {
+			window = 15 * time.Minute
+		}
+		_ = e.store.HandoffCandidateAdd(ctx, site.SiteID, ipHash(rc.IP), d.InApp.DeviceFamily,
+			HandoffRef{AttributionID: d.AttributionID, VisitorID: d.VisitorID, FromRequestID: rc.RequestID}, window)
 	}
 }
 

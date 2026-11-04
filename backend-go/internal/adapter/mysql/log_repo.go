@@ -39,7 +39,7 @@ func toRecord(e *decisionlog.Event) decisionlog.Record {
 		CreatedAt: e.CreatedAt, RequestID: e.RequestID, MerchantID: e.MerchantID, SiteID: e.SiteID,
 		Entry: e.Entry, Method: e.Method, Host: e.Host, Path: trunc(e.Path, 1000), QueryParamNames: qp,
 		TouchType: e.TouchType, Content: e.Content, Attributed: e.Attributed, Confidence: e.Confidence,
-		InAppBrowser: e.InAppBrowser, DeviceFamily: e.DeviceFamily, HandoffKind: e.HandoffKind,
+		InAppBrowser: e.InAppBrowser, DeviceFamily: e.DeviceFamily, HandoffKind: e.HandoffKind, HandoffFromRequestID: e.HandoffFromRequestID,
 		Channel: trunc(e.Channel, 128), CodeID: e.CodeID, Code: e.Code, MatchedParams: mp, ValidationErrors: ve,
 		VisitorID: e.VisitorID, AttributionID: e.AttributionID, AttributionExpiresAt: e.AttributionExpiresAt,
 		IPHash: e.IPHash, IPPrefix: e.IPPrefix, Country: e.Country, OS: e.OS,

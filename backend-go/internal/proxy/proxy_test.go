@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"bufio"
+	"compress/gzip"
 	"io"
 	"net"
 	"net/http"
@@ -246,6 +247,36 @@ func TestHTMLInjection(t *testing.T) {
 	}
 	if cl := rec.Header().Get("Content-Length"); cl == "" || cl == "0" {
 		t.Fatal("content-length must be recomputed")
+	}
+	// 用户关闭过引导条：不再注入引导条，链接延续仍生效
+	r = httptest.NewRequest(http.MethodGet, "https://shop.test/lp?ref=A", nil)
+	r.Host = "shop.test"
+	r.AddCookie(&http.Cookie{Name: "_ck_hb", Value: "1"})
+	rec, _ = do(p, s, d, r)
+	if strings.Contains(rec.Body.String(), "ck-handoff") || !strings.Contains(rec.Body.String(), "_ck=TOK123") {
+		t.Fatalf("dismissed banner: %s", rec.Body.String())
+	}
+	// 客户端接受 gzip 且正文够大：网关自己压缩
+	big := strings.Repeat("<p>filler content for compression test</p>", 60)
+	originBig := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html><body>" + big + "</body></html>"))
+	}))
+	defer originBig.Close()
+	s2 := site(originBig.URL, "")
+	r = httptest.NewRequest(http.MethodGet, "https://shop.test/lp", nil)
+	r.Header.Set("Accept-Encoding", "gzip, br")
+	rec, _ = do(p, s2, d, r)
+	if rec.Header().Get("Content-Encoding") != "gzip" {
+		t.Fatalf("expected gzip: %v", rec.Header())
+	}
+	zr, err := gzip.NewReader(rec.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := io.ReadAll(zr)
+	if !strings.Contains(string(plain), "ck-handoff") {
+		t.Fatal("gzipped body should contain banner")
 	}
 	// 系统浏览器不注入
 	d2 := realDecision()

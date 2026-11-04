@@ -106,6 +106,8 @@ type Handoff struct {
 	TokenMaxUses  int    `json:"tokenMaxUses"`
 	MatchEnabled  bool   `json:"matchEnabled"`
 	MatchMinutes  int    `json:"matchMinutes"`
+	// MatchSystemOnly 匹配时要求新请求来自系统浏览器（默认 true）
+	MatchSystemOnly bool `json:"matchSystemOnly"`
 }
 
 // TokenKey 访客令牌签名密钥。Status active 为当前签发密钥；grace 为宽限期内仍可验签的旧密钥。

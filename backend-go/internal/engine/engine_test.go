@@ -477,6 +477,70 @@ func TestClickReuse(t *testing.T) {
 	}
 }
 
+func TestHandoffOnReturnAndFromRequestID(t *testing.T) {
+	store := NewMemStore()
+	store.SetClock(func() time.Time { return now })
+	e := New(store)
+	s := testSite()
+
+	// 内置浏览器首访：记录请求 ID
+	rc := req(s, "https://shop.example.com/lp?ref=ALICE")
+	rc.UserAgent = iosFB
+	rc.RequestID = "req-first"
+	first := e.Decide(ctx, rc)
+
+	// 内置浏览器内翻到第二页（带 cookie 无参数）：也要拿到交接令牌
+	second := req(s, "https://shop.example.com/second")
+	second.UserAgent = iosFB
+	second.CookieToken = first.VisitorToken
+	second.RequestID = "req-second"
+	d2 := e.Decide(ctx, second)
+	if d2.TouchType != TouchReturn || d2.HandoffToken == "" {
+		t.Fatalf("return in-app should issue handoff token: %+v", d2)
+	}
+	// 用第二页的令牌交接：来源请求是 req-second
+	h := req(s, "https://shop.example.com/second?"+HandoffParam+"="+d2.HandoffToken)
+	h.UserAgent = iosSaf
+	dh := e.Decide(ctx, h)
+	if dh.TouchType != TouchHandoff || dh.HandoffFromReqID != "req-second" || dh.AttributionID != first.AttributionID {
+		t.Fatalf("handoff from request id: %+v", dh)
+	}
+	// 匹配交接：来源是首访请求
+	s2 := testSite()
+	rc2 := req(s2, "https://shop.example.com/lp?ref=ALICE")
+	rc2.UserAgent = iosFB
+	rc2.RequestID = "req-match-first"
+	e.Decide(ctx, rc2)
+	m := req(s2, "https://shop.example.com/lp")
+	m.UserAgent = iosSaf
+	dm := e.Decide(ctx, m)
+	if dm.HandoffKind != "match" || dm.HandoffFromReqID != "req-match-first" {
+		t.Fatalf("match from request id: %+v", dm)
+	}
+}
+
+func TestHandoffMatchSystemOnlyToggle(t *testing.T) {
+	store := NewMemStore()
+	store.SetClock(func() time.Time { return now })
+	e := New(store)
+	s := testSite()
+	s.Handoff.MatchSystemOnly = true
+	rc := req(s, "https://shop.example.com/lp?ref=ALICE")
+	rc.UserAgent = iosFB
+	e.Decide(ctx, rc)
+	// 新请求仍是内置浏览器：默认不匹配
+	m := req(s, "https://shop.example.com/lp")
+	m.UserAgent = iosFB
+	if d := e.Decide(ctx, m); d.TouchType != TouchNone {
+		t.Fatalf("in-app request must not match by default: %+v", d)
+	}
+	// 关闭限制后允许
+	s.Handoff.MatchSystemOnly = false
+	if d := e.Decide(ctx, m); d.HandoffKind != "match" {
+		t.Fatalf("system-only off should match: %+v", d)
+	}
+}
+
 func TestDryRunSkipsStore(t *testing.T) {
 	store := NewMemStore()
 	e := New(store)

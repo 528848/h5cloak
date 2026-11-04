@@ -76,6 +76,7 @@ type Site struct {
 	HandoffTokenMaxUses  int
 	HandoffMatchEnabled  bool
 	HandoffMatchMinutes  int
+	HandoffMatchSysOnly  bool `gorm:"column:handoff_match_system_only"`
 	TokenKeyVersion      int
 	TokenKeys            []byte `gorm:"type:json"`
 	CreatedAt            time.Time
