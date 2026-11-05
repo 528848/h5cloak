@@ -9,10 +9,45 @@ class Cloak_Attr_Settings
     public const OPTION_KEY = 'cloak_attr_settings';
     public const V1_OPTION_KEY = 'cloak_api_settings';
 
-    public const REVIEW_API_HTML = 'api_html';     // 用判定接口返回的平台模板 HTML
-    public const REVIEW_WP_PAGE = 'wp_page';       // 渲染站内某个页面（地址不变）
-    public const REVIEW_HTML_FILE = 'html_file';   // 输出服务器上的 HTML 文件
-    public const REVIEW_PROXY_URL = 'proxy_url';   // 服务端拉取审核源站内容后输出
+    // —— 同域输出（200，地址不变）——
+    public const REVIEW_API_HTML = 'api_html';     // 用判定接口返回的平台模板 HTML（仅审核）
+    public const REVIEW_WP_PAGE = 'wp_page';       // 在当前地址渲染站内某个页面
+    public const REVIEW_HTML_FILE = 'html_file';   // 在当前地址输出服务器上的 HTML 文件
+    public const REVIEW_PROXY_URL = 'proxy_url';   // 服务端拉取外部地址内容后在当前地址输出
+    // —— 真实页专用 ——
+    public const MODE_CURRENT = 'current';         // 继续渲染访客打开的当前页面（仅真实页）
+    // —— 兼容 V1 的跳转（302，地址会变）——
+    public const MODE_WP_PAGE_REDIRECT = 'wp_page_redirect'; // 302 到站内页面固定链接
+    public const MODE_EXTERNAL_REDIRECT = 'external_redirect'; // 302 到外部 https 地址（白名单）
+    public const MODE_HTML_REDIRECT = 'html_redirect'; // 302 到 HTML 文件公开 URL
+
+    /** 审核页可选模式。 */
+    public static function review_modes(): array
+    {
+        return [
+            self::REVIEW_API_HTML,
+            self::REVIEW_WP_PAGE,
+            self::REVIEW_HTML_FILE,
+            self::REVIEW_PROXY_URL,
+            self::MODE_WP_PAGE_REDIRECT,
+            self::MODE_EXTERNAL_REDIRECT,
+            self::MODE_HTML_REDIRECT,
+        ];
+    }
+
+    /** 真实页可选模式（无 api_html，多 current）。 */
+    public static function real_modes(): array
+    {
+        return [
+            self::MODE_CURRENT,
+            self::REVIEW_WP_PAGE,
+            self::REVIEW_HTML_FILE,
+            self::REVIEW_PROXY_URL,
+            self::MODE_WP_PAGE_REDIRECT,
+            self::MODE_EXTERNAL_REDIRECT,
+            self::MODE_HTML_REDIRECT,
+        ];
+    }
 
     public static function defaults(): array
     {
@@ -29,6 +64,15 @@ class Cloak_Attr_Settings
             'review_page_id' => 0,
             'review_html_path' => '',
             'review_proxy_url' => '',
+            'review_external_url' => '',  // external_redirect 目标
+            'review_html_url' => '',      // html_redirect 目标
+            'real_mode' => self::MODE_CURRENT,
+            'real_page_id' => 0,
+            'real_html_path' => '',
+            'real_proxy_url' => '',
+            'real_external_url' => '',
+            'real_html_url' => '',
+            'external_allowed_hosts' => '', // external_redirect 允许的主机，每行一个
             'inject_banner' => true,
             'woo_enabled' => true,
             'woo_scope' => 'all',        // all | shop_only（商店/购物车/结账/商品） | products
@@ -61,8 +105,12 @@ class Cloak_Attr_Settings
             $secret = sanitize_text_field(trim((string) $input['secret']));
         }
         $review_mode = sanitize_key($input['review_mode'] ?? $current['review_mode']);
-        if (!in_array($review_mode, [self::REVIEW_API_HTML, self::REVIEW_WP_PAGE, self::REVIEW_HTML_FILE, self::REVIEW_PROXY_URL], true)) {
+        if (!in_array($review_mode, self::review_modes(), true)) {
             $review_mode = self::REVIEW_API_HTML;
+        }
+        $real_mode = sanitize_key($input['real_mode'] ?? $current['real_mode']);
+        if (!in_array($real_mode, self::real_modes(), true)) {
+            $real_mode = self::MODE_CURRENT;
         }
         $fail_mode = sanitize_key($input['fail_mode'] ?? $current['fail_mode']);
         if (!in_array($fail_mode, ['review', 'real'], true)) {
@@ -85,6 +133,15 @@ class Cloak_Attr_Settings
             'review_page_id' => absint($input['review_page_id'] ?? $current['review_page_id']),
             'review_html_path' => sanitize_text_field(str_replace('\\', '/', trim((string) ($input['review_html_path'] ?? $current['review_html_path'])))),
             'review_proxy_url' => esc_url_raw(trim((string) ($input['review_proxy_url'] ?? $current['review_proxy_url']))),
+            'review_external_url' => esc_url_raw(trim((string) ($input['review_external_url'] ?? $current['review_external_url']))),
+            'review_html_url' => esc_url_raw(trim((string) ($input['review_html_url'] ?? $current['review_html_url']))),
+            'real_mode' => $real_mode,
+            'real_page_id' => absint($input['real_page_id'] ?? $current['real_page_id']),
+            'real_html_path' => sanitize_text_field(str_replace('\\', '/', trim((string) ($input['real_html_path'] ?? $current['real_html_path'])))),
+            'real_proxy_url' => esc_url_raw(trim((string) ($input['real_proxy_url'] ?? $current['real_proxy_url']))),
+            'real_external_url' => esc_url_raw(trim((string) ($input['real_external_url'] ?? $current['real_external_url']))),
+            'real_html_url' => esc_url_raw(trim((string) ($input['real_html_url'] ?? $current['real_html_url']))),
+            'external_allowed_hosts' => self::sanitize_hosts($input['external_allowed_hosts'] ?? $current['external_allowed_hosts']),
             'inject_banner' => !empty($input['inject_banner']),
             'woo_enabled' => !empty($input['woo_enabled']),
             'woo_scope' => $woo_scope,
@@ -111,51 +168,84 @@ class Cloak_Attr_Settings
                 $api_base = ($parts['scheme'] ?? 'https') . '://' . $parts['host'] . (isset($parts['port']) ? ':' . $parts['port'] : '');
             }
         }
-        $review_mode = self::REVIEW_API_HTML;
-        $page_id = 0;
-        $html_path = '';
-        $proxy_url = '';
-        switch ($v1['review_mode'] ?? '') {
-            case 'wp_page':
-                $review_mode = self::REVIEW_WP_PAGE;
-                $page_id = (int) ($v1['review_page_id'] ?? 0);
-                break;
-            case 'html_output':
-            case 'html_redirect':
-                if (!empty($v1['review_html_path'])) {
-                    $review_mode = self::REVIEW_HTML_FILE;
-                    $html_path = (string) $v1['review_html_path'];
-                }
-                break;
-            case 'external_url':
-                if (!empty($v1['review_external_url'])) {
-                    $review_mode = self::REVIEW_PROXY_URL;
-                    $proxy_url = (string) $v1['review_external_url'];
-                }
-                break;
-        }
         $exclude = (string) ($v1['exclude_paths'] ?? '');
         $merged = array_unique(array_filter(array_map('trim', array_merge(
             preg_split('/\r\n|\r|\n/', $defaults['exclude_paths']),
             preg_split('/\r\n|\r|\n/', $exclude)
         ))));
-        $settings = array_merge($defaults, [
+        // 审核页与真实页逐一映射，保留 V1 的 302 行为
+        $sides = array_merge(
+            self::map_v1_side($v1, 'review'),
+            self::map_v1_side($v1, 'real')
+        );
+        $settings = array_merge($defaults, $sides, [
             'enabled' => !empty($v1['enabled']),
             'api_base' => $api_base,
             // v1 的 ck_ Key 不能直接用，须换成站点 sk_ 密钥；若已是 sk_ 则沿用
             'secret' => (strpos((string) ($v1['api_token'] ?? ''), 'sk_') === 0) ? (string) $v1['api_token'] : '',
             'fail_mode' => in_array($v1['fail_mode'] ?? '', ['review', 'real'], true) ? $v1['fail_mode'] : 'review',
             'exclude_paths' => implode("\n", $merged),
-            'review_mode' => $review_mode,
-            'review_page_id' => $page_id,
-            'review_html_path' => $html_path,
-            'review_proxy_url' => $proxy_url,
+            'external_allowed_hosts' => self::sanitize_hosts((string) ($v1['external_allowed_hosts'] ?? '')),
         ]);
         update_option(self::OPTION_KEY, $settings);
         update_option('cloak_attr_migrated_from_v1', [
             'at' => current_time('mysql'),
             'needs_secret' => $settings['secret'] === '',
         ]);
+    }
+
+    /** 把 V1 单侧（review/real）配置映射为 V2 字段，保留 302。 */
+    private static function map_v1_side(array $v1, string $side): array
+    {
+        $mode = (string) ($v1[$side . '_mode'] ?? '');
+        switch ($mode) {
+            case 'wp_page': // V1 为 302 跳转
+                return [
+                    $side . '_mode' => self::MODE_WP_PAGE_REDIRECT,
+                    $side . '_page_id' => (int) ($v1[$side . '_page_id'] ?? 0),
+                ];
+            case 'external_url':
+                return [
+                    $side . '_mode' => self::MODE_EXTERNAL_REDIRECT,
+                    $side . '_external_url' => (string) ($v1[$side . '_external_url'] ?? ''),
+                ];
+            case 'html_redirect':
+                return [
+                    $side . '_mode' => self::MODE_HTML_REDIRECT,
+                    $side . '_html_url' => (string) ($v1[$side . '_html_url'] ?? ''),
+                ];
+            case 'html_output': // V1 唯一的同域 200 输出
+                return [
+                    $side . '_mode' => self::REVIEW_HTML_FILE,
+                    $side . '_html_path' => (string) ($v1[$side . '_html_path'] ?? ''),
+                ];
+            default:
+                return [$side . '_mode' => $side === 'real' ? self::MODE_CURRENT : self::REVIEW_API_HTML];
+        }
+    }
+
+    /** 外链白名单：每行一个主机或 URL，统一归一化为小写主机。 */
+    public static function sanitize_hosts($value): string
+    {
+        $out = [];
+        foreach (preg_split('/\r\n|\r|\n|,/', (string) $value) as $line) {
+            $line = strtolower(trim($line));
+            if ($line === '') {
+                continue;
+            }
+            if (strpos($line, '://') !== false) {
+                $line = (string) wp_parse_url($line, PHP_URL_HOST);
+            }
+            if ($line !== '') {
+                $out[] = $line;
+            }
+        }
+        return implode("\n", array_unique($out));
+    }
+
+    public static function allowed_external_hosts(array $settings): array
+    {
+        return array_values(array_filter(array_map('trim', preg_split('/\r\n|\r|\n/', (string) ($settings['external_allowed_hosts'] ?? '')))));
     }
 
     public static function exclude_patterns(array $settings): array

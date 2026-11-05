@@ -14,7 +14,7 @@
             <el-tag type="info" effect="plain">兼容 V1 X-API-Key</el-tag>
           </div>
           <div class="hero-desc">
-            不托管域名也能用：你的服务端在渲染页面前调用判定接口，按返回决定输出真实内容还是审核内容，地址栏保持不变。
+            同一个链接可以返回审核页或真实页，地址栏不变。托管接入由网关回源；服务器接入在渲染前调用判定接口，按结果输出其中一套内容。
           </div>
         </div>
         <el-space>
@@ -122,6 +122,57 @@
       </el-col>
 
       <el-col :lg="17" :xs="24">
+        <section-card
+          title="同域双内容"
+          subtitle="对应 V1 的同域双模板：同一个链接返回不同页面，地址栏不变"
+          class="page-section"
+        >
+          <p class="scene-desc">
+            准备两套内容。访客始终打开你自己的域名。服务端按判定结果输出其中一套，返回 200，不使用 302 跳到另一个地址。
+          </p>
+          <el-row :gutter="16">
+            <el-col :md="12" :xs="24">
+              <div class="flow-box">
+                <h4>方式一：托管接入</h4>
+                <p>网站代码不用改。域名解析到网关后，网关在同一条 URL 上取真实源站或审核内容。</p>
+                <ol class="flow-steps">
+                  <li>新建站点，接入方式选「托管接入」或「混合接入」。</li>
+                  <li>在域名管理添加托管域名，把 CNAME 或 A 记录指到网关入口，校验到「已绑定」。</li>
+                  <li>在站点配置填写真实源站。审核内容选平台模板、审核源站或静态包。</li>
+                  <li>访客打开 <span class="mono">https://你的域名/任意路径</span>。有归因时回源真实站，没有归因时返回审核内容。地址栏仍是这个域名。</li>
+                </ol>
+              </div>
+            </el-col>
+            <el-col :md="12" :xs="24">
+              <div class="flow-box">
+                <h4>方式二：服务器自己输出</h4>
+                <p>这就是 V1 的同域双库。网站继续放在你的服务器上，渲染前先问判定接口。</p>
+                <ol class="flow-steps">
+                  <li>新建站点，接入方式选「服务端接入」或「混合接入」。域名用自有域名，解析仍指向你的服务器。</li>
+                  <li>真实内容就是现在的站点。审核内容准备成站内页面、服务器上的 HTML 文件，或使用平台返回的模板。</li>
+                  <li>每个页面前调用 <span class="mono">POST /api/open/v2/decision</span>，带上当前 URL、Cookie、IP 和 UA。</li>
+                  <li><span class="mono">content</span> 为 <span class="mono">real</span> 或 <span class="mono">bypass</span>：继续渲染真实页，并按返回的 cookie 写入访客令牌。</li>
+                  <li>其他结果：在当前 URL 输出审核 HTML，状态码 200，并加上 <span class="mono">Cache-Control: no-store</span>。不要跳转。</li>
+                </ol>
+              </div>
+            </el-col>
+          </el-row>
+          <el-alert
+            type="warning"
+            show-icon
+            :closable="false"
+            title="全页缓存会让所有人看到同一套页面。HTML 不要缓存，或按访客 Cookie 分开缓存。WordPress 的 WP Rocket、LiteSpeed、Nginx 全页缓存都要排除前台。"
+          />
+          <p class="scene-desc flow-note">
+            WordPress 用插件 <span class="mono">cloak-attribution</span> 即可，不必手写上述步骤。插件把 V1 的全部输出方式都搬了过来，审核页和真实页各自独立配置：
+          </p>
+          <ul class="flow-modes">
+            <li><b>地址不变（推荐）</b>：平台模板、渲染站内页面、输出服务器 HTML 文件、服务端拉取外部地址。访客地址栏保持不变，返回 200，不闪跳。</li>
+            <li><b>真实页默认「继续显示当前网站」</b>：带归因参数的访客直接看到他打开的这篇页面，无需再单独准备一套真实页，比 V1 少一步。</li>
+            <li><b>兼容 V1 的跳转</b>：跳转站内页面、跳转外部链接、跳转 HTML 文件地址。这三种是 302，浏览器地址会变、会闪一下，对 SEO 落地页和回访不友好，仅在必须换到固定网址时使用。</li>
+          </ul>
+        </section-card>
+
         <section-card
           title="签名函数"
           subtitle="所有 v2 接口共用，密钥只存服务端"
@@ -314,6 +365,54 @@
     font-size: 13px;
     line-height: 1.7;
     color: var(--el-text-color-secondary);
+  }
+
+  .flow-box {
+    height: 100%;
+    margin-bottom: 16px;
+    padding: 14px 16px 4px;
+    border: 1px solid var(--el-border-color-lighter);
+    border-radius: 10px;
+  }
+
+  .flow-box h4 {
+    margin: 0 0 8px;
+    font-size: 14px;
+  }
+
+  .flow-box p {
+    margin: 0 0 10px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--el-text-color-regular);
+  }
+
+  .flow-steps {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.7;
+  }
+
+  .flow-steps li + li {
+    margin-top: 6px;
+  }
+
+  .flow-modes {
+    margin: 10px 0 0;
+    padding-left: 18px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--el-text-color-regular);
+  }
+
+  .flow-modes li + li {
+    margin-top: 6px;
+  }
+
+  .flow-note {
+    margin-top: 12px;
+    margin-bottom: 0;
   }
 
   .steps :deep(.el-step__description) {

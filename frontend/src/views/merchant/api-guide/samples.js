@@ -396,7 +396,7 @@ export const wordpressSteps = [
   },
   {
     title: '选择审核输出',
-    desc: '默认使用平台配置的审核模板；也可选站内页面、服务器 HTML 文件或外部地址内容。都在当前 URL 以 200 输出，不跳转。'
+    desc: '默认使用平台配置的审核模板；也可选站内页面、服务器 HTML 文件或外部地址内容。都在当前 URL 以 200 输出，不跳转。这就是 V1 的同域双模板。'
   },
   {
     title: 'WooCommerce 范围',

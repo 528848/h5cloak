@@ -3,7 +3,7 @@
  * Plugin Name:       Cloak Attribution
  * Plugin URI:        https://github.com/cloak-system/cloak-attribution-wp
  * Description:       斗篷系统 v2 接入：访客带归因参数看到真实页面，否则看到审核内容，地址不变。支持 WooCommerce、跨浏览器交接引导。
- * Version:           2.0.0
+ * Version:           2.1.0
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Cloak System
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CLOAK_ATTR_VERSION', '2.0.0');
+define('CLOAK_ATTR_VERSION', '2.1.0');
 define('CLOAK_ATTR_FILE', __FILE__);
 define('CLOAK_ATTR_PATH', plugin_dir_path(__FILE__));
 define('CLOAK_ATTR_URL', plugin_dir_url(__FILE__));

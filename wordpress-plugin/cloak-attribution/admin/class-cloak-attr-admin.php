@@ -70,6 +70,40 @@ class Cloak_Attr_Admin
         wp_send_json_error($result);
     }
 
+    /** 渲染单侧（review/real）的输出模式单选组。 */
+    private function mode_options(string $opt, string $side, array $s, array $pages): void
+    {
+        $m = (string) ($s[$side . '_mode'] ?? '');
+        $name = $opt . '[' . $side . '_mode]';
+        ?>
+        <fieldset>
+            <?php if ($side === 'real') : ?>
+                <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="current" <?php checked($m, 'current'); ?>> 继续显示当前网站（推荐，地址不变）</label><br>
+            <?php else : ?>
+                <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="api_html" <?php checked($m, 'api_html'); ?>> 使用平台配置的审核模板（推荐，在商户后台维护，地址不变）</label><br>
+            <?php endif; ?>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="wp_page" <?php checked($m, 'wp_page'); ?>> 渲染站内页面（地址不变）：</label>
+            <select name="<?php echo esc_attr($opt . '[' . $side . '_page_id]'); ?>">
+                <option value="0">— 选择页面 —</option>
+                <?php foreach ($pages as $p) : ?>
+                    <option value="<?php echo (int) $p->ID; ?>" <?php selected((int) ($s[$side . '_page_id'] ?? 0), (int) $p->ID); ?>><?php echo esc_html($p->post_title); ?></option>
+                <?php endforeach; ?>
+            </select><br>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="html_file" <?php checked($m, 'html_file'); ?>> 输出服务器 HTML 文件（地址不变）：</label>
+            <input type="text" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_html_path]'); ?>" value="<?php echo esc_attr($s[$side . '_html_path'] ?? ''); ?>" placeholder="<?php echo esc_attr(ABSPATH . $side . '/index.html'); ?>"><br>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="proxy_url" <?php checked($m, 'proxy_url'); ?>> 服务端拉取外部地址内容（地址不变）：</label>
+            <input type="url" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_proxy_url]'); ?>" value="<?php echo esc_attr($s[$side . '_proxy_url'] ?? ''); ?>" placeholder="https://content.example.com/"><br>
+            <hr style="margin:10px 0;border:0;border-top:1px solid #e0e0e0">
+            <p class="description" style="margin:0 0 6px">以下为兼容 V1 的跳转，<strong>浏览器地址会变成目标地址</strong>：</p>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="wp_page_redirect" <?php checked($m, 'wp_page_redirect'); ?>> 跳转到站内页面（302）：使用上方所选页面的固定链接</label><br>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="external_redirect" <?php checked($m, 'external_redirect'); ?>> 跳转到外部链接（302）：</label>
+            <input type="url" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_external_url]'); ?>" value="<?php echo esc_attr($s[$side . '_external_url'] ?? ''); ?>" placeholder="https://go.example.com/"><br>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="html_redirect" <?php checked($m, 'html_redirect'); ?>> 跳转到 HTML 文件地址（302）：</label>
+            <input type="url" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_html_url]'); ?>" value="<?php echo esc_attr($s[$side . '_html_url'] ?? ''); ?>" placeholder="https://your-site.com/wp-content/cloak/page.html">
+        </fieldset>
+        <?php
+    }
+
     public function render(): void
     {
         if (!current_user_can('manage_options')) {
@@ -123,31 +157,34 @@ class Cloak_Attr_Admin
                     </tr>
                 </table>
 
-                <h2 class="title">审核内容</h2>
+                <h2 class="title">审核内容（未归因访客看到）</h2>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row">输出方式</th>
                         <td>
-                            <fieldset>
-                                <label><input type="radio" name="<?php echo $opt; ?>[review_mode]" value="api_html" <?php checked($s['review_mode'], 'api_html'); ?>> 使用平台配置的审核模板（推荐，在商户后台维护）</label><br>
-                                <label><input type="radio" name="<?php echo $opt; ?>[review_mode]" value="wp_page" <?php checked($s['review_mode'], 'wp_page'); ?>> 渲染站内页面：</label>
-                                <select name="<?php echo $opt; ?>[review_page_id]">
-                                    <option value="0">— 选择页面 —</option>
-                                    <?php foreach ($pages as $p) : ?>
-                                        <option value="<?php echo (int) $p->ID; ?>" <?php selected((int) $s['review_page_id'], (int) $p->ID); ?>><?php echo esc_html($p->post_title); ?></option>
-                                    <?php endforeach; ?>
-                                </select><br>
-                                <label><input type="radio" name="<?php echo $opt; ?>[review_mode]" value="html_file" <?php checked($s['review_mode'], 'html_file'); ?>> 输出服务器 HTML 文件：</label>
-                                <input type="text" class="regular-text" name="<?php echo $opt; ?>[review_html_path]" value="<?php echo esc_attr($s['review_html_path']); ?>" placeholder="<?php echo esc_attr(ABSPATH . 'review/index.html'); ?>"><br>
-                                <label><input type="radio" name="<?php echo $opt; ?>[review_mode]" value="proxy_url" <?php checked($s['review_mode'], 'proxy_url'); ?>> 服务端拉取外部地址内容：</label>
-                                <input type="url" class="regular-text" name="<?php echo $opt; ?>[review_proxy_url]" value="<?php echo esc_attr($s['review_proxy_url']); ?>" placeholder="https://review.example.com/">
-                            </fieldset>
-                            <p class="description">所有方式都在当前地址以 200 输出，不跳转、不改 URL。</p>
+                            <?php $this->mode_options($opt, 'review', $s, $pages); ?>
+                            <p class="description">前 4 种在当前地址以 200 输出，不改 URL；后 3 种是兼容 V1 的 302 跳转，浏览器地址会变。</p>
                         </td>
                     </tr>
                     <tr>
                         <th scope="row">内置浏览器引导条</th>
                         <td><label><input type="checkbox" name="<?php echo $opt; ?>[inject_banner]" value="1" <?php checked($s['inject_banner']); ?>> 访客在微信/抖音等内置浏览器中看到真实页面时，页脚显示「在浏览器中打开」引导条（需站点开启交接）</label></td>
+                    </tr>
+                </table>
+
+                <h2 class="title">真实内容（已归因访客看到）</h2>
+                <table class="form-table" role="presentation">
+                    <tr>
+                        <th scope="row">输出方式</th>
+                        <td>
+                            <?php $this->mode_options($opt, 'real', $s, $pages); ?>
+                            <p class="description">默认「继续显示当前网站」：带有效归因参数的访客直接看到他打开的这篇页面，无需另建真实页。仅在需要把真实访客导向另一个页面 / 外链 / 文件时才改为其它模式。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="ca-ext-hosts">外链白名单</label></th>
+                        <td><textarea id="ca-ext-hosts" class="large-text code" rows="2" name="<?php echo $opt; ?>[external_allowed_hosts]" placeholder="go.example.com&#10;promo.example.net"><?php echo esc_textarea($s['external_allowed_hosts']); ?></textarea>
+                            <p class="description">仅当审核页或真实页选择「跳转到外部链接」时生效。每行一个主机，只允许 https。</p></td>
                     </tr>
                 </table>
 
