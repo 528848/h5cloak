@@ -202,7 +202,7 @@ func (h *Handler) decide(ctx context.Context, p *Principal, in *decisionReq, u *
 	}
 	d := h.d.Engine.Decide(ctx, rc)
 	quotaHit := ""
-	if d.Content != engine.ContentBypass && h.d.Quota != nil {
+	if !d.Unmetered() && h.d.Quota != nil {
 		if h.d.Quota.Over(ctx, p.Site.MerchantID, p.Site.Quota.Decisions) {
 			switch p.Site.Quota.Policy {
 			case quota.PolicyReviewAll:
@@ -290,8 +290,17 @@ func (h *Handler) decisionData(site *snapshot.Site, rc *engine.RequestContext, d
 func (h *Handler) renderHint(site *snapshot.Site) map[string]any {
 	switch site.Review.Source {
 	case "template":
-		if html, err := proxy.RenderTemplate(site.Review.TemplateHTML, site.Review.TemplateVars); err == nil {
-			return map[string]any{"type": "html", "html": string(html)}
+		switch site.Review.TemplateKind {
+		case "url":
+			if site.Review.TemplateURL != "" {
+				return map[string]any{"type": "url", "url": site.Review.TemplateURL}
+			}
+		case "static":
+			return map[string]any{"type": "static"}
+		default:
+			if html, err := proxy.RenderTemplate(site.Review.TemplateHTML, site.Review.TemplateVars); err == nil {
+				return map[string]any{"type": "html", "html": string(html)}
+			}
 		}
 	case "origin":
 		if o := site.Origin("review"); o != nil {
@@ -367,6 +376,7 @@ func (h *Handler) emit(rc *engine.RequestContext, d *engine.Decision, start time
 			VisitorID: d.VisitorID, AttributionID: d.AttributionID, TouchType: d.TouchType, HandoffKind: d.HandoffKind,
 			Channel: d.Channel, MatchedParams: d.MatchedParams, LandingPath: rc.URL.Path, Confidence: d.Confidence,
 			ExpiresAt: ev.AttributionExpiresAt, Country: country, DeviceFamily: d.InApp.DeviceFamily, InAppBrowser: d.InApp.App,
+			IPHash: ev.IPHash,
 		}
 		if d.Code != nil {
 			aw.CodeID = d.Code.ID

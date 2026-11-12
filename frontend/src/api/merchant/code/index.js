@@ -4,7 +4,7 @@ import { download, checkDownloadRes } from '@/utils/common';
 const ok = (res) =>
   res.data.code === 200 ? res.data : Promise.reject(new Error(res.data.msg));
 
-/** 分页查询分销码 */
+/** 分页查询归因码 */
 export async function pageCodes(params) {
   return ok(await request.get('/merchant/code/list', { params }));
 }

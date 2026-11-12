@@ -125,7 +125,7 @@
     });
   const more = () =>
     router.push(
-      APP_PORTAL === 'merchant' ? '/merchant/alert' : '/admin/dashboard'
+      APP_PORTAL === 'merchant' ? '/merchant/alert/list' : '/admin/dashboard'
     );
   const fmtTime = (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '');
   const onChanged = () => {

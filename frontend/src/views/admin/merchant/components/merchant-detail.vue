@@ -57,34 +57,9 @@
               >
             </el-space>
           </div>
-          <div class="summary-strip">
-            <div class="summary-item is-amount">
-              <span>判定额度 / 月</span>
-              <strong>{{
-                Number(data.quota.decisionQuota).toLocaleString()
-              }}</strong>
-            </div>
-            <div class="summary-item"
-              ><span>站点</span><strong>{{ data.quota.siteQuota }}</strong></div
-            >
-            <div class="summary-item"
-              ><span>域名</span
-              ><strong>{{ data.quota.domainQuota }}</strong></div
-            >
-            <div class="summary-item"
-              ><span>分销码</span
-              ><strong>{{ data.quota.codeQuota }}</strong></div
-            >
-            <div class="summary-item">
-              <span>子账号</span>
-              <strong>{{ data.userCount }} / {{ data.quota.userQuota }}</strong>
-            </div>
-            <div class="summary-item"
-              ><span>日志保留</span
-              ><strong>{{ data.quota.logRetentionDays }} 天</strong></div
-            >
-          </div>
         </ele-card>
+
+        <summary-cards :items="quotaCards" :cols="3" />
 
         <el-row :gutter="16">
           <el-col :md="16" :xs="24">
@@ -149,7 +124,7 @@
 </template>
 
 <script setup>
-  import { ref, onMounted } from 'vue';
+  import { ref, computed, onMounted } from 'vue';
   import { EleMessage, useModal } from 'ele-admin-plus';
   import { useMobile } from '@/utils/use-mobile';
   import { getMerchant } from '@/api/admin/merchant';
@@ -168,6 +143,52 @@
 
   const loading = ref(true);
   const data = ref(null);
+
+  const quotaCards = computed(() => {
+    const q = data.value?.quota;
+    if (!q) {
+      return [];
+    }
+    return [
+      {
+        key: 'decision',
+        label: '判定额度 / 月',
+        value: Number(q.decisionQuota || 0),
+        type: 'primary',
+        desc: '每月可判定次数'
+      },
+      {
+        key: 'site',
+        label: '站点',
+        value: q.siteQuota,
+        desc: '可创建站点数'
+      },
+      {
+        key: 'domain',
+        label: '域名',
+        value: q.domainQuota,
+        desc: '可绑定域名数'
+      },
+      {
+        key: 'code',
+        label: '归因码',
+        value: q.codeQuota,
+        desc: '可登记归因码数'
+      },
+      {
+        key: 'user',
+        label: '子账号',
+        value: `${data.value.userCount} / ${q.userQuota}`,
+        desc: '已用 / 上限'
+      },
+      {
+        key: 'log',
+        label: '日志保留',
+        value: q.logRetentionDays,
+        desc: '天，超出后自动清理'
+      }
+    ];
+  });
 
   const load = () => {
     loading.value = true;

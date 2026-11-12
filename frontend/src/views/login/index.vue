@@ -3,24 +3,16 @@
     <div class="login-main">
       <ele-card shadow="always" class="login-card">
         <div class="login-cover">
-          <h1 class="login-title">{{ PROJECT_NAME }}</h1>
-          <h4 class="login-subtitle">{{ t('login.subtitle') }}</h4>
+          <div class="login-brand">
+            <img class="login-logo" src="@/assets/logo.png" alt="H5Cloak" />
+            <h1 class="login-title">{{ PROJECT_NAME }}</h1>
+          </div>
         </div>
         <div class="login-body">
           <ele-text type="heading" style="font-size: 24px; margin-bottom: 18px">
             {{ t('login.title') }}
           </ele-text>
-          <ele-segmented
-            v-model="tabActive"
-            :items="[
-              { label: t('login.passwordType'), value: 1 },
-              { label: t('login.qrcodeType'), value: 2 }
-            ]"
-            style="margin-bottom: 18px"
-            @change="handleTabChange"
-          />
           <el-form
-            v-if="tabActive == 1"
             ref="formRef"
             size="large"
             :model="form"
@@ -32,6 +24,7 @@
               <el-input
                 clearable
                 v-model="form.username"
+                autocomplete="off"
                 :placeholder="t('login.username')"
                 :prefix-icon="UserOutlined"
               />
@@ -40,6 +33,7 @@
               <el-input
                 show-password
                 v-model="form.password"
+                autocomplete="off"
                 :placeholder="t('login.password')"
                 :prefix-icon="LockOutlined"
               />
@@ -74,28 +68,6 @@
               </el-button>
             </el-form-item>
           </el-form>
-          <div v-else class="login-qrcode-group">
-            <ele-qr-code-svg
-              :size="180"
-              :margin="2"
-              :value="qrcode"
-              class="login-qrcode"
-            />
-            <el-link
-              type="primary"
-              underline="never"
-              style="margin-top: 16px; user-select: none"
-              @click="refreshQrCode"
-            >
-              <el-icon
-                :size="15"
-                style="transform: translateY(-1px); margin-right: 6px"
-              >
-                <ReloadOutlined />
-              </el-icon>
-              <span>{{ t('login.refreshQrcode') }}</span>
-            </el-link>
-          </div>
         </div>
       </ele-card>
     </div>
@@ -109,8 +81,7 @@
   import {
     UserOutlined,
     LockOutlined,
-    ProtectOutlined,
-    ReloadOutlined
+    ProtectOutlined
   } from '@/components/icons';
   import PageFooter from '@/layout/components/page-footer.vue';
   import { useLogin } from '@/utils/use-login';
@@ -123,9 +94,6 @@
   const { login, loginByTicket, checkLogin } = useLogin();
   const { t } = useI18n();
 
-  /** 页签选中 */
-  const tabActive = ref(1);
-
   /** 表单组件 */
   const formRef = ref(null);
 
@@ -134,8 +102,8 @@
 
   /** 表单数据 */
   const form = reactive({
-    username: 'admin',
-    password: 'admin123',
+    username: '',
+    password: '',
     code: '',
     uuid: '',
     rememberMe: true
@@ -180,23 +148,14 @@
   /** 图形验证码样式 */
   const captchaStyle = ref({});
 
-  /** 二维码 */
-  const qrcode = ref('');
-
   /** 获取图形验证码 */
   const queryCaptcha = () => {
-    if (!captchaEnabled.value) {
-      return;
-    }
     getCaptcha()
       .then((result) => {
         captchaEnabled.value = result.captchaEnabled ?? true;
         if (captchaEnabled.value) {
-          captcha.value = `data:image/gif;base64,${result.img}`;
-          captchaStyle.value = {
-            transform: `scaleX(1.${Math.floor(Math.random() * (0 - 5) + 5)}) skewX(-${Math.floor(Math.random() * (0 - 30) + 30)}deg) scale(1.04)`,
-            filter: `contrast(200%) hue-rotate(${Math.floor(Math.random() * (0 - 360) + 360)}deg)`
-          };
+          captcha.value = `data:image/svg+xml;base64,${result.img}`;
+          captchaStyle.value = {};
           form.uuid = result.uuid;
           formRef.value?.clearValidate?.();
         }
@@ -219,18 +178,6 @@
         queryCaptcha();
       });
     });
-  };
-
-  /** 刷新二维码 */
-  const refreshQrCode = () => {
-    qrcode.value = `/auth/login?code=${Date.now()}`;
-  };
-
-  /** 选项卡切换事件 */
-  const handleTabChange = (active) => {
-    if (active === 2) {
-      refreshQrCode();
-    }
   };
 
   /** 模拟登录票据优先于已有会话；否则已登录直接进入首页 */
@@ -295,6 +242,20 @@
     text-align: center;
   }
 
+  .login-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+  }
+
+  .login-logo {
+    width: 80px;
+    height: 80px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
   .login-body {
     width: 400px;
     flex-shrink: 0;
@@ -328,7 +289,7 @@
 
     .login-captcha {
       flex-shrink: 0;
-      width: 108px;
+      width: 120px;
       height: 40px;
       margin-left: 8px;
       border-radius: var(--el-border-radius-base);
@@ -356,37 +317,13 @@
   .login-title {
     color: rgba(255, 255, 255, 0.98);
     font-size: 28px;
-    margin: 0 0 6px 0;
+    margin: 0;
     font-weight: normal;
     letter-spacing: 1.2px;
     font-family:
       -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
       Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
       'Segoe UI Symbol', 'Noto Color Emoji';
-  }
-
-  .login-subtitle {
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 16px;
-    margin: 0;
-    font-weight: normal;
-    letter-spacing: 4px;
-  }
-
-  /* 二维码 */
-  .login-qrcode-group {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding: 24px 0;
-  }
-
-  .login-qrcode {
-    font-size: 0;
-    display: inline-block;
-    border: 1px solid #ddd;
-    border-radius: var(--el-border-radius-base);
-    overflow: hidden;
   }
 
   /* 小屏幕适应 */

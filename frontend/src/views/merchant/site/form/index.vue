@@ -233,6 +233,12 @@
               />
             </el-form-item>
           </el-col>
+          <el-col v-if="form.handoffBanner" :span="24">
+            <el-form-item label="效果">
+              <el-button plain @click="bannerPreview = true">预览提示条</el-button>
+              <span class="field-hint">浮层弹框，没有遮罩，访客仍可操作源站</span>
+            </el-form-item>
+          </el-col>
           <el-col :md="8" :xs="24">
             <el-form-item label="接力有效期">
               <el-input-number
@@ -352,7 +358,7 @@
                 <el-form-item label="回源 Host">
                   <el-input
                     v-model.trim="origins[item.kind].hostHeader"
-                    placeholder="留空则使用源站地址的主机名"
+                    placeholder="填客户主域名可沿用已有证书，如 example.com"
                   />
                 </el-form-item>
                 <el-form-item label="超时">
@@ -412,25 +418,37 @@
                 <el-option
                   v-for="t in templates"
                   :key="t.templateId"
-                  :label="t.name"
+                  :label="`${t.name}（${templateKindLabel(t.kind)}）`"
                   :value="t.templateId"
                 />
               </el-select>
             </el-form-item>
-            <el-form-item label="站点名">
-              <el-input
-                v-model.trim="review.siteName"
-                placeholder="展示在模板标题"
-              />
-            </el-form-item>
-            <el-form-item label="口号">
-              <el-input
-                v-model.trim="review.slogan"
-                placeholder="展示在模板副标题"
-              />
-            </el-form-item>
+            <template v-if="selectedTemplateKind === 'html'">
+              <el-form-item label="站点名">
+                <el-input
+                  v-model.trim="review.siteName"
+                  placeholder="展示在模板标题"
+                />
+              </el-form-item>
+              <el-form-item label="口号">
+                <el-input
+                  v-model.trim="review.slogan"
+                  placeholder="展示在模板副标题"
+                />
+              </el-form-item>
+            </template>
+            <el-alert
+              v-else-if="selectedTemplateKind"
+              type="info"
+              show-icon
+              :closable="false"
+              title="内容由平台模板提供，站点不能修改模板正文。"
+            />
           </el-form>
-          <el-button v-if="canEdit" plain @click="handlePreview"
+          <el-button
+            v-if="canEdit && selectedTemplateKind === 'html'"
+            plain
+            @click="handlePreview"
             >预览</el-button
           >
         </div>
@@ -718,6 +736,23 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="bannerPreview" title="提示条预览" width="640px">
+      <div class="banner-stage">
+        <div class="banner-page">
+          <div class="banner-line"></div>
+          <div class="banner-line short"></div>
+          <div class="banner-line"></div>
+          <div class="banner-line mid"></div>
+        </div>
+        <div class="ck-preview">
+          <button type="button" class="ck-x" @click="bannerPreview = false">×</button>
+          <div class="ck-text">{{ form.handoffBannerText || '在浏览器中打开，继续访问' }}</div>
+          <span class="ck-open">打开</span>
+        </div>
+      </div>
+      <p class="banner-note">弹框浮在源站上，没有遮罩。访客可以关掉它，也可以继续点击页面里的内容。</p>
+    </el-dialog>
+
     <el-dialog v-model="previewVisible" title="模板预览" width="860px">
       <iframe class="preview-frame" :srcdoc="previewHtml"></iframe>
     </el-dialog>
@@ -796,12 +831,19 @@
   const previewHtml = ref('');
   const previewVisible = ref(false);
   const secretVisible = ref(false);
+  const bannerPreview = ref(false);
   const serverSecret = ref('');
   const review = reactive({
     source: 'template',
     templateId: undefined,
     siteName: '',
     slogan: ''
+  });
+  const templateKindLabel = (kind) =>
+    ({ html: 'HTML', url: '网址', static: '静态项目' })[kind] || 'HTML';
+  const selectedTemplateKind = computed(() => {
+    const row = templates.value.find((t) => t.templateId === review.templateId);
+    return row?.kind || 'html';
   });
   const origins = reactive({
     real: emptyOrigin(),
@@ -1106,6 +1148,81 @@
 <style scoped>
   .field-hint {
     margin-left: 8px;
+    font-size: 12px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .banner-stage {
+    position: relative;
+    height: 280px;
+    border-radius: 10px;
+    background: #f5f6f8;
+    overflow: hidden;
+  }
+
+  .banner-page {
+    padding: 28px 24px;
+  }
+
+  .banner-line {
+    height: 12px;
+    margin-bottom: 12px;
+    border-radius: 6px;
+    background: #e4e7ed;
+  }
+
+  .banner-line.short {
+    width: 46%;
+  }
+
+  .banner-line.mid {
+    width: 72%;
+  }
+
+  .ck-preview {
+    position: absolute;
+    left: 50%;
+    top: 18%;
+    transform: translateX(-50%);
+    width: min(360px, calc(100% - 32px));
+    box-sizing: border-box;
+    padding: 16px 16px 14px;
+    background: #fff;
+    color: #1f2329;
+    border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .ck-x {
+    position: absolute;
+    top: 8px;
+    right: 10px;
+    border: 0;
+    background: none;
+    color: #8a8f99;
+    font-size: 20px;
+    line-height: 1;
+    padding: 0;
+    cursor: pointer;
+  }
+
+  .ck-text {
+    margin: 0 22px 14px 0;
+  }
+
+  .ck-open {
+    display: inline-block;
+    background: #1677ff;
+    color: #fff;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-weight: 600;
+  }
+
+  .banner-note {
+    margin: 12px 0 0;
     font-size: 12px;
     color: var(--el-text-color-secondary);
   }

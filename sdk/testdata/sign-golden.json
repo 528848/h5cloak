@@ -1,0 +1,10 @@
+{
+  "description": "v2 签名已知答案向量，各语言 SDK 必须对同一输入产出相同 signature。算法：hex(HMAC_SHA256(secret, ts\\n nonce\\n UPPER(method)\\n path\\n hex(sha256(body))))。",
+  "secret": "sk_test_secret_key_1234567890",
+  "ts": "1700000000",
+  "nonce": "0123456789abcdef0123456789abcdef",
+  "method": "POST",
+  "path": "/api/open/v2/decision",
+  "body": "{\"url\":\"https://shop.example/landing?x=1\"}",
+  "signature": "a1ad822a82f530f9f2006cc509ed8c4cdd31767d6e6b10a4446e5e8ad26f2042"
+}

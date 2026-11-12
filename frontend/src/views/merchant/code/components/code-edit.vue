@@ -1,9 +1,9 @@
-<!-- 登记 / 编辑分销码 -->
+<!-- 登记 / 编辑归因码 -->
 <template>
   <ele-modal
     :form="true"
     :width="600"
-    :title="isEdit ? '编辑分销码' : '登记分销码'"
+    :title="isEdit ? '编辑归因码' : '登记归因码'"
     :loading="loading"
     v-bind="modalProps"
   >
@@ -32,26 +32,17 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="类型" prop="codeType">
-            <el-radio-group v-model="form.codeType">
-              <el-radio
-                v-for="o in codeTypeOptions"
-                :key="o.value"
-                :value="o.value"
-              >
-                {{ o.label }}
-              </el-radio>
-            </el-radio-group>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
           <el-form-item label="码值" prop="code">
             <el-input
               v-model.trim="form.code"
               :disabled="isEdit"
               placeholder="2-64 位字母数字 _ -"
               class="mono"
-            />
+            >
+              <template v-if="!isEdit" #append>
+                <el-button type="button" @click="fillCode">生成</el-button>
+              </template>
+            </el-input>
           </el-form-item>
         </el-col>
         <el-col :span="12">
@@ -145,7 +136,6 @@
   import { EleMessage, useModal } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
   import { addCode, updateCode } from '@/api/merchant/code';
-  import { codeTypeOptions } from '../constants';
 
   const props = defineProps({
     data: Object,
@@ -171,6 +161,15 @@
     allowedPathsText: (props.data?.allowedPaths || []).join('\n'),
     remark: props.data?.remark ?? ''
   });
+
+  const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+  const fillCode = () => {
+    const bytes = new Uint8Array(8);
+    crypto.getRandomValues(bytes);
+    form.code = Array.from(bytes, (b) => codeAlphabet[b % codeAlphabet.length]).join('');
+    formRef.value?.clearValidate?.('code');
+  };
 
   const rules = reactive({
     siteId: [{ required: true, message: '请选择站点', trigger: 'change' }],

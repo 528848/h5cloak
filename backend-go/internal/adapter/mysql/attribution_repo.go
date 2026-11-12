@@ -85,13 +85,16 @@ func (r *AttributionRepo) SaveRule(ctx context.Context, rule *attribution.Rule) 
 
 // CodeFilter 分销码列表筛选。
 type CodeFilter struct {
-	MerchantID uint64
-	SiteID     uint64
-	Keyword    string
-	CodeType   string
-	Status     string // enabled / disabled / expired
-	Channel    string
-	Page, Size int
+	MerchantID  uint64
+	SiteID      uint64
+	Keyword     string
+	CodeType    string
+	Status      string // enabled / disabled / expired，enabled 按当前是否仍有效
+	RawStatus   string // 按库里的 status 原值筛选，不看是否过期
+	Channel     string
+	CreatedFrom *time.Time
+	CreatedTo   *time.Time
+	Page, Size  int
 }
 
 func (r *AttributionRepo) ListCodes(ctx context.Context, f CodeFilter) ([]attribution.Code, int64, error) {
@@ -130,14 +133,24 @@ func (r *AttributionRepo) codeQuery(ctx context.Context, f CodeFilter) *gorm.DB 
 	if f.Channel != "" {
 		q = q.Where("channel = ?", f.Channel)
 	}
-	now := time.Now()
-	switch f.Status {
-	case attribution.StatusEnabled:
-		q = q.Where("status = ? AND (expires_at IS NULL OR expires_at > ?)", attribution.StatusEnabled, now)
-	case attribution.StatusDisabled:
-		q = q.Where("status = ?", attribution.StatusDisabled)
-	case "expired":
-		q = q.Where("status = ? AND expires_at IS NOT NULL AND expires_at <= ?", attribution.StatusEnabled, now)
+	if f.RawStatus != "" {
+		q = q.Where("status = ?", f.RawStatus)
+	} else {
+		now := time.Now()
+		switch f.Status {
+		case attribution.StatusEnabled:
+			q = q.Where("status = ? AND (expires_at IS NULL OR expires_at > ?)", attribution.StatusEnabled, now)
+		case attribution.StatusDisabled:
+			q = q.Where("status = ?", attribution.StatusDisabled)
+		case "expired":
+			q = q.Where("status = ? AND expires_at IS NOT NULL AND expires_at <= ?", attribution.StatusEnabled, now)
+		}
+	}
+	if f.CreatedFrom != nil {
+		q = q.Where("created_at >= ?", *f.CreatedFrom)
+	}
+	if f.CreatedTo != nil {
+		q = q.Where("created_at <= ?", *f.CreatedTo)
 	}
 	return q
 }

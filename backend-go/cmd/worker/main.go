@@ -13,7 +13,9 @@ import (
 	"cloak/internal/app/bootstrap"
 	"cloak/internal/app/opssvc"
 	"cloak/internal/app/sitesvc"
+	"cloak/internal/app/telegramsvc"
 	"cloak/internal/pkg/httpserver"
+	"cloak/internal/pkg/secretbox"
 	"cloak/internal/quota"
 	"cloak/internal/worker/streams"
 	"cloak/internal/worker/tasks"
@@ -61,9 +63,16 @@ func main() {
 	if rdb != nil {
 		qc = quota.New(rdb)
 	}
+	var box *secretbox.Box
+	if b, err := secretbox.New(rt.Cfg.Auth.SecretKey); err != nil {
+		rt.Log.Warn("secretbox unavailable, telegram self-bot disabled", zap.Error(err))
+	} else {
+		box = b
+	}
+	opsRepo := mysql.NewOpsRepo(db)
 	opsSvc := opssvc.New(opssvc.Deps{
-		Repo: mysql.NewOpsRepo(db), Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
-		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Log: rt.Log,
+		Repo: opsRepo, Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
+		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Box: box, Log: rt.Log,
 	})
 	opsSvc.SetAttemptSource(func(ctx context.Context) int {
 		n, err := platformRepo.WebhookAttempts(ctx)
@@ -73,6 +82,15 @@ func main() {
 		return n
 	})
 	tasks.NewOps(opsSvc, rt.Log).Run(ctx)
+
+	// Telegram 自有机器人：长轮询入站 + 每日日报
+	if box != nil {
+		tgSvc := telegramsvc.New(telegramsvc.Deps{
+			Repo: opsRepo, Ops: opsSvc, Merchants: merchantRepo, Sites: siteRepo,
+			Box: box, Rdb: rdb, Notify: rt.Cfg.Notify, Log: rt.Log,
+		})
+		go tgSvc.RunPolling(ctx)
+	}
 
 	if rdb != nil {
 		consumer := streams.New(rdb, logRepo, rt.Log, rt.Cfg.App.NodeName)

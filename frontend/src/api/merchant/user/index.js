@@ -3,9 +3,30 @@ import request from '@/utils/request';
 const ok = (res) =>
   res.data.code === 200 ? res.data : Promise.reject(new Error(res.data.msg));
 
-/** 可分配角色 */
+/** 可分配角色（启用中） */
 export async function listMerchantRoles() {
   return (await ok(await request.get('/merchant/role/list'))).data;
+}
+
+/** 角色管理列表，含内置角色和本商户自建角色 */
+export async function listManageRoles() {
+  return (await ok(await request.get('/merchant/role/manage'))).data;
+}
+
+export async function saveMerchantRole(id, data) {
+  const req = id
+    ? request.put(`/merchant/role/${id}`, data)
+    : request.post('/merchant/role', data);
+  return ok(await req);
+}
+
+export async function removeMerchantRole(id) {
+  return (await ok(await request.delete(`/merchant/role/${id}`))).msg;
+}
+
+/** 商户端菜单，只读，用于角色勾选 */
+export async function listMerchantMenus() {
+  return (await ok(await request.get('/merchant/menu/list'))).data;
 }
 
 /** 分页查询子账号 */

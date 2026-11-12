@@ -13,11 +13,11 @@ import (
 	"cloak/internal/engine/snapshot"
 )
 
-// 引导条：内联 HTML + CSS，无外部请求。按 OS 提供唤起系统浏览器的链接。
-const bannerTemplate = `<div id="ck-handoff" style="position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#111;color:#fff;font:14px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:12px 14px;display:flex;align-items:center;gap:12px;box-shadow:0 -2px 10px rgba(0,0,0,.25)">
-<span style="flex:1">%TEXT%</span>
-<a href="%HREF%" style="background:#fff;color:#111;border-radius:6px;padding:8px 12px;text-decoration:none;font-weight:600;white-space:nowrap">%BTN%</a>
-<button type="button" onclick="document.getElementById('ck-handoff').style.display='none';document.cookie='_ck_hb=1;path=/;SameSite=Lax'" style="background:none;border:0;color:#aaa;font-size:20px;line-height:1;padding:0 4px" aria-label="close">&times;</button>
+// 引导弹框：浮在页面上，没有遮罩，不挡住源站点击。按 OS 提供唤起系统浏览器的链接。
+const bannerTemplate = `<div id="ck-handoff" style="position:fixed;z-index:2147483647;left:50%;top:18%;transform:translateX(-50%);width:min(360px,calc(100% - 32px));background:#fff;color:#1f2329;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.22);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:16px 16px 14px;box-sizing:border-box">
+<button type="button" aria-label="close" onclick="document.getElementById('ck-handoff').style.display='none';document.cookie='_ck_hb=1;path=/;SameSite=Lax'" style="position:absolute;top:8px;right:10px;background:none;border:0;color:#8a8f99;font-size:20px;line-height:1;padding:0;cursor:pointer">&times;</button>
+<div style="margin:0 22px 14px 0">%TEXT%</div>
+<a href="%HREF%" style="display:inline-block;background:#1677ff;color:#fff;border-radius:6px;padding:8px 14px;text-decoration:none;font-weight:600">%BTN%</a>
 </div>`
 
 var (
@@ -46,8 +46,11 @@ func openInBrowserHref(target string, osName string) string {
 		}
 	case "android":
 		u, err := url.Parse(target)
-		if err == nil {
-			return "intent://" + u.Host + u.RequestURI() + "#Intent;scheme=" + u.Scheme + ";action=android.intent.action.VIEW;end"
+		if err == nil && u.Host != "" && (u.Scheme == "https" || u.Scheme == "http") {
+			// BROWSABLE 交给系统解析默认浏览器，不写死 Chrome。
+			return "intent://" + u.Host + u.RequestURI() + "#Intent;scheme=" + u.Scheme +
+				";action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=" +
+				url.QueryEscape(target) + ";end"
 		}
 	}
 	return target

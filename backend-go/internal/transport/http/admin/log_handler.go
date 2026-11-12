@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"net/http"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 
 	"cloak/internal/app/logsvc"
@@ -14,7 +17,8 @@ func (h *logHandler) list(c *gin.Context) {
 		SiteID: querySiteID(c), From: c.Query("from"), To: c.Query("to"), Path: c.Query("path"),
 		TouchType: c.Query("touchType"), Content: c.Query("content"), Channel: c.Query("channel"), Code: c.Query("code"),
 		Reason: c.Query("reason"), Country: c.Query("country"), InApp: c.Query("inApp"), VisitorID: c.Query("visitorId"),
-		RequestID: c.Query("requestId"), Page: atoi(c.Query("pageNum"), 1), Size: atoi(c.Query("pageSize"), 20),
+		RequestID: c.Query("requestId"), ShowAll: c.Query("all") == "1",
+		Page: atoi(c.Query("pageNum"), 1), Size: atoi(c.Query("pageSize"), 20),
 	}
 	rows, total, err := h.svc.List(c.Request.Context(), merchantScope(c), in)
 	if err != nil {
@@ -41,6 +45,20 @@ func (h *logHandler) apiLogs(c *gin.Context) {
 		return
 	}
 	response.Page(c, rows, total)
+}
+
+func (h *logHandler) apiDetail(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	row, err := h.svc.APIDetail(c.Request.Context(), merchantScope(c), id)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, row, "查询成功")
 }
 
 func (h *logHandler) stats(c *gin.Context) {

@@ -16,12 +16,12 @@ import (
 
 type Service struct {
 	users     identity.UserRepository
-	roles     identity.RoleRepository
+	roles     *mysql.IdentityRepo
 	merchants identity.MerchantRepository
 	tokens    *auth.TokenManager
 }
 
-func New(u identity.UserRepository, r identity.RoleRepository, m identity.MerchantRepository, t *auth.TokenManager) *Service {
+func New(u identity.UserRepository, r *mysql.IdentityRepo, m identity.MerchantRepository, t *auth.TokenManager) *Service {
 	return &Service{users: u, roles: r, merchants: m, tokens: t}
 }
 
@@ -46,16 +46,24 @@ type RoleRow struct {
 	RoleID  uint64 `json:"roleId"`
 	RoleKey string `json:"roleKey"`
 	Name    string `json:"name"`
+	Remark  string `json:"remark"`
+	Builtin bool   `json:"builtin"`
 }
 
-func (s *Service) Roles(ctx context.Context) ([]RoleRow, error) {
-	roles, err := s.roles.ListByScope(ctx, identity.ScopeMerchant)
+func (s *Service) Roles(ctx context.Context, merchantID uint64) ([]RoleRow, error) {
+	roles, err := s.roles.ListForMerchant(ctx, merchantID)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]RoleRow, 0, len(roles))
 	for _, r := range roles {
-		out = append(out, RoleRow{RoleID: r.ID, RoleKey: r.RoleKey, Name: r.Name})
+		if r.Status != identity.StatusEnabled {
+			continue
+		}
+		out = append(out, RoleRow{
+			RoleID: r.ID, RoleKey: r.RoleKey, Name: r.Name,
+			Remark: identity.Deref(r.Remark), Builtin: r.MerchantID == nil,
+		})
 	}
 	return out, nil
 }
@@ -97,7 +105,7 @@ func (s *Service) Create(ctx context.Context, operator *identity.User, in Input)
 	} else if exists {
 		return nil, errf(400, "账号已被使用")
 	}
-	role, err := s.resolveRole(ctx, in.RoleKey)
+	role, err := s.resolveRole(ctx, merchantID, in.RoleKey)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +147,7 @@ func (s *Service) Update(ctx context.Context, operator *identity.User, id uint64
 	if err != nil {
 		return err
 	}
-	role, err := s.resolveRole(ctx, in.RoleKey)
+	role, err := s.resolveRole(ctx, *operator.MerchantID, in.RoleKey)
 	if err != nil {
 		return err
 	}
@@ -242,17 +250,23 @@ func (s *Service) mustGetOwned(ctx context.Context, operator *identity.User, id 
 	return u, nil
 }
 
-func (s *Service) resolveRole(ctx context.Context, key string) (*identity.Role, error) {
-	switch key {
-	case identity.RoleMerchantAdmin, identity.RoleMerchantOperator, identity.RoleMerchantViewer:
-	default:
-		return nil, errf(400, "角色无效")
+func (s *Service) resolveRole(ctx context.Context, merchantID uint64, key string) (*identity.Role, error) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil, errf(400, "请选择角色")
 	}
 	roles, err := s.roles.FindByKeys(ctx, []string{key})
-	if err != nil || len(roles) == 0 {
-		return nil, errf(500, "角色不存在")
+	if err != nil || len(roles) == 0 || roles[0].Scope != identity.ScopeMerchant {
+		return nil, errf(400, "角色无效")
 	}
-	return &roles[0], nil
+	role := roles[0]
+	if role.MerchantID != nil && *role.MerchantID != merchantID {
+		return nil, errf(400, "角色无效")
+	}
+	if role.Status != identity.StatusEnabled {
+		return nil, errf(400, "该角色已停用")
+	}
+	return &role, nil
 }
 
 func (s *Service) ensureNotLastAdmin(ctx context.Context, merchantID, excludeUserID uint64) error {

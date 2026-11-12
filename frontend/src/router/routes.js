@@ -81,7 +81,24 @@ export function getMenuRoutes(menus, homePath) {
     childRoutes.push({
       path: '/merchant/site/form',
       component: () => import('@/views/merchant/site/form/index.vue'),
-      meta: { title: '站点配置' }
+      meta: { title: '站点配置', active: '/merchant/site' }
+    });
+    childRoutes.push({
+      path: '/merchant/alert/telegram',
+      component: () => import('@/views/merchant/alert/telegram/index.vue'),
+      meta: { title: '配置 Telegram', active: '/merchant/alert/settings' }
+    });
+    childRoutes.push({
+      path: '/merchant/alert/telegram-setup',
+      component: () => import('@/views/merchant/alert/telegram-setup/index.vue'),
+      meta: { title: 'Telegram 机器人', active: '/merchant/alert/settings' }
+    });
+  }
+  if (APP_PORTAL === 'admin') {
+    childRoutes.push({
+      path: '/admin/template/form',
+      component: () => import('@/views/admin/template/form/index.vue'),
+      meta: { title: '模板配置' }
     });
   }
   return layoutRoutes;

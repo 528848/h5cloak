@@ -6,14 +6,14 @@
 
 | 进程 | 作用 | 监听 |
 | --- | --- | --- |
-| Nginx | 80 端口按 Host 分流 | `:80` |
+| Nginx | 80 端口按 Host 分流；443 按 SNI 分流 | `:80`、`:443` |
 | cloak-admin | 总后台与商户端 API | `127.0.0.1:8080` |
-| cloak-gateway | 托管反向代理、开放接口、HTTPS 证书 | `127.0.0.1:8090`、`:443` |
+| cloak-gateway | 托管反向代理、开放接口、托管域名证书 | `127.0.0.1:8090`、`127.0.0.1:8444` |
 | cloak-worker | 日志入库、聚合、告警、Webhook、导出、清理 | 指标 `127.0.0.1:9091` |
 | MySQL 8.4 | 业务库 `cloak_v2` | `127.0.0.1:3306` |
 | Redis | 会话、快照、限流 | `127.0.0.1:6379` |
 
-控制台是静态文件，放在 `/opt/cloak/www/admin` 与 `/opt/cloak/www/merchant`。`/api` 由 Nginx 转到 admin。其它 Host（商户托管域名、ACME 校验）转到网关。网关自己监听 443，只给已绑定域名签发证书。
+控制台是静态文件，放在 `/opt/cloak/www/admin` 与 `/opt/cloak/www/merchant`。`/api` 由 Nginx 转到 admin。其它 Host（商户托管域名、ACME 校验）转到网关。公网 443 由 Nginx stream 按 SNI 转发：控制台域名到本机 8443（Nginx 终结 TLS），其余域名到网关 8444。网关只给已绑定的托管域名签发证书。
 
 程序与密钥：
 
@@ -49,14 +49,9 @@ powershell -File deploy/release.ps1 -Target cloak-test
 
 ## 4. 证书
 
-默认 `CLOAK_GATEWAY_TLS_STAGING=true`，用 Let's Encrypt 测试环境签发。浏览器会提示不受信任，这是预期。流程跑通后改成正式证书：
+控制台证书由 `install.sh` 用 certbot（HTTP-01）签给总后台域名和商户端域名，放在 `/etc/letsencrypt/live/`。80 端口留着续期校验，其它请求跳到 HTTPS。续期后 `renewal-hooks/deploy/cloak-reload.sh` 会重载 Nginx。
 
-```bash
-sed -i 's/CLOAK_GATEWAY_TLS_STAGING="true"/CLOAK_GATEWAY_TLS_STAGING="false"/' /opt/cloak/env/gateway.env
-systemctl restart cloak-gateway
-```
-
-证书按域名按需签发，存在 `/opt/cloak/data/certs`。只给快照里已绑定的域名签。
+托管域名仍由网关按需向 Let's Encrypt 正式环境签发，存在 `/opt/cloak/data/certs`。只给快照里已绑定的域名签。`CLOAK_GATEWAY_TLS_STAGING=false` 才是正式证书；设成 `true` 时浏览器会提示不受信任。
 
 ## 5. 托管域名
 
@@ -82,11 +77,11 @@ systemctl restart cloak-gateway
 | 机器 | `170.178.174.31`，Debian 13，2 核 4G，主机名 `cloak-go` |
 | 登录 | `ssh cloak-test`（本机 `~/.ssh/config`，密钥 `~/.ssh/cloak_test`） |
 | 域名 | `h5cloak.com`（Cloudflare DNS，目前只有根域名 A 记录） |
-| 商户端 | http://h5cloak.com （`merchant` / `merchant123`） |
-| 总后台 | http://admin.h5cloak.com ，需先加 A 记录到 `170.178.174.31`。记录生效前仍可用 http://admin.170-178-174-31.sslip.io |
+| 商户端 | https://h5cloak.com （`merchant` / `merchant123`） |
+| 总后台 | https://admin.h5cloak.com 。旧地址 http://admin.170-178-174-31.sslip.io 仍可打开，不跳 HTTPS |
 | 入口 | 商户托管域名 CNAME 到 `h5cloak.com`，或 A 记录指向 `170.178.174.31` |
 | 演示站点 | http://demo.170-178-174-31.sslip.io ，分销码 `DEMO1` |
-| 证书 | 托管域名走 Let's Encrypt 正式环境。控制台目前是 HTTP |
+| 证书 | 控制台是 Let's Encrypt，到期 2027-02-02，certbot 自动续期。托管域名仍由网关签发 |
 | 版本 | 见 `curl -s http://127.0.0.1:8080/api/version`（在服务器上） |
 
 种子账号只用于测试。接到真实流量前改掉密码。root 密码曾经在对话里出现过，建议在服务器上执行 `passwd` 换掉。

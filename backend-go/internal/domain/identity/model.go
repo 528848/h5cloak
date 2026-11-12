@@ -51,6 +51,7 @@ type Merchant struct {
 	SiteQuota        uint32
 	DomainQuota      uint32
 	CodeQuota        uint32
+	CloakQuota       uint32
 	UserQuota        uint32
 	LogRetentionDays uint32
 	QuotaPolicy      string          `gorm:"size:32"`

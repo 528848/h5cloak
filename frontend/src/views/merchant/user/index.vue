@@ -37,12 +37,8 @@
           >
         </template>
         <template #role="{ row }">
-          <el-tag
-            :type="getOptionType(roleOptions, row.roleKeys[0])"
-            effect="light"
-            size="small"
-          >
-            {{ getOptionLabel(roleOptions, row.roleKeys[0]) }}
+          <el-tag effect="light" size="small">
+            {{ row.roleNames?.[0] || getOptionLabel(roleOptions, row.roleKeys[0]) }}
           </el-tag>
         </template>
         <template #status="{ row }">
@@ -139,10 +135,11 @@
     {
       columnKey: 'role',
       label: '角色',
-      width: 110,
+      minWidth: 120,
       align: 'center',
       slot: 'role',
-      formatter: (row) => getOptionLabel(roleOptions, row.roleKeys[0])
+      formatter: (row) =>
+        row.roleNames?.[0] || getOptionLabel(roleOptions, row.roleKeys[0])
     },
     {
       prop: 'status',

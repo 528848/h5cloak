@@ -33,6 +33,24 @@ func TestMatch(t *testing.T) {
 	}
 }
 
+func TestPlatformStatic(t *testing.T) {
+	s := &snapshot.Site{}
+	_ = s.Compile()
+	if r := Match(s, "/assets/app.CSS"); r == nil || r.Pattern != ".css" || r.Action != "bypass" {
+		t.Fatalf("css: %+v", r)
+	}
+	if r := Match(s, "/font/a.woff2"); r == nil || r.Pattern != ".woff2" {
+		t.Fatalf("woff2 must not match woff: %+v", r)
+	}
+	blocked := &snapshot.Site{PathRules: []snapshot.PathRule{
+		{Pattern: ".css", MatchType: MatchSuffix, Action: "block", Sort: 1},
+	}}
+	_ = blocked.Compile()
+	if r := Match(blocked, "/a.css"); r == nil || r.Action != "bypass" {
+		t.Fatalf("platform static overrides site rule: %+v", r)
+	}
+}
+
 func TestAllowed(t *testing.T) {
 	if !Allowed("/x", nil) || !Allowed("/x", []string{}) {
 		t.Fatal("empty allows all")

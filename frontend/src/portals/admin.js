@@ -1,6 +1,6 @@
 export const APP_PORTAL = 'admin';
 
-export const APP_NAME = '斗篷系统总后台';
+export const APP_NAME = 'H5Cloak 总后台';
 
 export const PORTAL_PREFIX = '/admin';
 

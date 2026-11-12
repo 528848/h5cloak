@@ -20,10 +20,10 @@
               class="ele-fluid"
             >
               <el-option
-                v-for="o in roleOptions"
-                :key="o.value"
-                :label="o.label"
-                :value="o.value"
+                v-for="o in roles"
+                :key="o.roleKey"
+                :label="o.name"
+                :value="o.roleKey"
               />
             </el-select>
           </el-form-item>
@@ -62,8 +62,21 @@
 </template>
 
 <script setup>
+  import { ref } from 'vue';
+  import { EleMessage } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
+  import { listMerchantRoles } from '@/api/merchant/user';
   import { roleOptions, userStatusOptions } from '../constants';
+
+  const roles = ref([]);
+  listMerchantRoles()
+    .then((rows) => {
+      roles.value = rows || [];
+    })
+    .catch((e) => {
+      roles.value = roleOptions.map((o) => ({ roleKey: o.value, name: o.label }));
+      EleMessage.error({ message: e.message, plain: true });
+    });
 
   const emit = defineEmits(['search']);
   const [form, resetFields] = useFormData({

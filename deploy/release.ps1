@@ -1,4 +1,7 @@
-﻿# 从 Windows 开发机发布到服务器：交叉编译 Go、构建两个前端、打包上传、远程执行 install.sh。
+# 不要用本脚本发布测试环境。整包 scp 会静默损坏，而且每次重连 SSH 都很慢。
+# 测试环境用：powershell -File deploy/deploy-test.ps1
+# 本脚本只保留给已经确认链路稳定、并且需要带安装参数的首次装机。
+# 从 Windows 开发机发布到服务器：交叉编译 Go、构建两个前端、打包上传、远程执行 install.sh。
 # 用法（仓库根目录）：
 #   powershell -File deploy/release.ps1 -Target cloak-test                       # 升级（沿用服务器上已记录的主机名）
 #   powershell -File deploy/release.ps1 -Target cloak-test -InstallArgs "--admin-host a.x --merchant-host m.x --entry-host e.x --acme-email ops@x --demo-origins"

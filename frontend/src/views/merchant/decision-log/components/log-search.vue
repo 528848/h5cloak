@@ -80,7 +80,7 @@
             </el-form-item>
           </el-col>
           <el-col :lg="6" :md="8" :sm="12" :xs="24">
-            <el-form-item label="分销码">
+            <el-form-item label="归因码">
               <el-input
                 v-model.trim="form.code"
                 clearable

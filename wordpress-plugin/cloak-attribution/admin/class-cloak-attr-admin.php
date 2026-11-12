@@ -13,6 +13,7 @@ class Cloak_Attr_Admin
         add_action('admin_menu', [$this, 'menu']);
         add_action('admin_init', [$this, 'register']);
         add_action('admin_notices', [$this, 'notices']);
+        add_action('admin_post_cloak_attr_purge_cache', [$this, 'purge_cache']);
         add_action('wp_ajax_cloak_attr_test', [$this, 'ajax_test']);
         add_filter('plugin_action_links_' . plugin_basename(CLOAK_ATTR_FILE), function ($links) {
             array_unshift($links, '<a href="' . esc_url(admin_url('options-general.php?page=' . self::PAGE)) . '">' . esc_html__('设置', 'cloak-attribution') . '</a>');
@@ -35,10 +36,29 @@ class Cloak_Attr_Admin
         ]);
     }
 
+    public function purge_cache(): void
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('forbidden', 'cloak-attribution'), 403);
+        }
+        check_admin_referer('cloak_attr_purge_cache');
+        $removed = Cloak_Attr_Deep_Proxy::purge_cache();
+        $url = add_query_arg([
+            'page' => self::PAGE,
+            'cache_purged' => (string) $removed,
+        ], admin_url('options-general.php'));
+        wp_safe_redirect($url);
+        exit;
+    }
+
     public function notices(): void
     {
         if (!current_user_can('manage_options')) {
             return;
+        }
+        if (isset($_GET['cache_purged']) && isset($_GET['page']) && $_GET['page'] === self::PAGE) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+            $removed = (int) $_GET['cache_purged']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+            echo '<div class="notice notice-success is-dismissible"><p>' . esc_html(sprintf('已清除深度代理缓存，删除 %d 个文件。', $removed)) . '</p></div>';
         }
         $migrated = get_option('cloak_attr_migrated_from_v1');
         if (is_array($migrated) && !empty($migrated['needs_secret'])) {
@@ -76,25 +96,36 @@ class Cloak_Attr_Admin
         $m = (string) ($s[$side . '_mode'] ?? '');
         $name = $opt . '[' . $side . '_mode]';
         ?>
+        <?php $hint_style = 'margin:2px 0 8px 24px;color:#646970'; ?>
         <fieldset>
+            <p class="description" style="margin:0 0 6px"><strong>A. 同域输出（推荐）</strong>：以下几种都在当前地址以 200 返回，<strong>浏览器地址不变</strong>。选中哪一种，就以哪一种为准。</p>
             <?php if ($side === 'real') : ?>
-                <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="current" <?php checked($m, 'current'); ?>> 继续显示当前网站（推荐，地址不变）</label><br>
+                <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="current" <?php checked($m, 'current'); ?>> <strong>继续显示当前网站（推荐）</strong></label>
+                <p class="description" style="<?php echo esc_attr($hint_style); ?>">带有效归因参数的访客直接看到他打开的这篇页面，无需另建真实页。</p>
             <?php else : ?>
-                <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="api_html" <?php checked($m, 'api_html'); ?>> 使用平台配置的审核模板（推荐，在商户后台维护，地址不变）</label><br>
+                <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="api_html" <?php checked($m, 'api_html'); ?>> <strong>使用平台配置的审核模板（推荐）</strong></label>
+                <p class="description" style="<?php echo esc_attr($hint_style); ?>">内容用<strong>斗篷商户后台 → 站点 → 源站</strong>里的审核源站（当前是整站时按访客地址回源并改写域名）。选中这一项后，下面输入框里以前填过的地址不会生效。</p>
             <?php endif; ?>
-            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="wp_page" <?php checked($m, 'wp_page'); ?>> 渲染站内页面（地址不变）：</label>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="wp_page" <?php checked($m, 'wp_page'); ?>> 渲染本站内的某个页面：</label>
             <select name="<?php echo esc_attr($opt . '[' . $side . '_page_id]'); ?>">
                 <option value="0">— 选择页面 —</option>
                 <?php foreach ($pages as $p) : ?>
                     <option value="<?php echo (int) $p->ID; ?>" <?php selected((int) ($s[$side . '_page_id'] ?? 0), (int) $p->ID); ?>><?php echo esc_html($p->post_title); ?></option>
                 <?php endforeach; ?>
-            </select><br>
-            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="html_file" <?php checked($m, 'html_file'); ?>> 输出服务器 HTML 文件（地址不变）：</label>
-            <input type="text" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_html_path]'); ?>" value="<?php echo esc_attr($s[$side . '_html_path'] ?? ''); ?>" placeholder="<?php echo esc_attr(ABSPATH . $side . '/index.html'); ?>"><br>
-            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="proxy_url" <?php checked($m, 'proxy_url'); ?>> 服务端拉取外部地址内容（地址不变）：</label>
-            <input type="url" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_proxy_url]'); ?>" value="<?php echo esc_attr($s[$side . '_proxy_url'] ?? ''); ?>" placeholder="https://content.example.com/"><br>
-            <hr style="margin:10px 0;border:0;border-top:1px solid #e0e0e0">
-            <p class="description" style="margin:0 0 6px">以下为兼容 V1 的跳转，<strong>浏览器地址会变成目标地址</strong>：</p>
+            </select>
+            <p class="description" style="<?php echo esc_attr($hint_style); ?>">选中本项后，<strong>不再使用上面的平台模板</strong>，改用本站这个页面。</p>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="html_file" <?php checked($m, 'html_file'); ?>> 输出服务器上的 HTML 文件：</label>
+            <input type="text" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_html_path]'); ?>" value="<?php echo esc_attr($s[$side . '_html_path'] ?? ''); ?>" placeholder="<?php echo esc_attr(ABSPATH . $side . '/index.html'); ?>">
+            <p class="description" style="<?php echo esc_attr($hint_style); ?>">选中本项后，<strong>不再使用上面的平台模板</strong>，改读这个文件。</p>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="proxy_url" <?php checked($m, 'proxy_url'); ?>> 服务端拉取外部地址的内容：</label>
+            <input type="text" class="regular-text" inputmode="url" name="<?php echo esc_attr($opt . '[' . $side . '_proxy_url]'); ?>" value="<?php echo esc_attr($s[$side . '_proxy_url'] ?? ''); ?>" placeholder="https://content.example.com/">
+            <p class="description" style="<?php echo esc_attr($hint_style); ?>"><strong>注意：选中本项会覆盖平台模板</strong>，插件直接把这个地址的页面抓回来输出（<strong>不改写域名</strong>）。要用商户后台的平台模板，请改回上面第一项并把此处留空。</p>
+            <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="deep_proxy" <?php checked($m, 'deep_proxy'); ?>> <strong>深度代理整站（推荐，地址不变、链接不跳走）：</strong></label>
+            <input type="text" class="regular-text" inputmode="url" autocomplete="off" name="<?php echo esc_attr($opt . '[' . $side . '_deep_origin]'); ?>" value="<?php echo esc_attr($s[$side . '_deep_origin'] ?? ''); ?>" placeholder="https://toptime.cc">
+            <input type="text" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_deep_host]'); ?>" value="<?php echo esc_attr($s[$side . '_deep_host'] ?? ''); ?>" placeholder="回源 Host（源站用 IP 时填，可留空）">
+            <p class="description" style="<?php echo esc_attr($hint_style); ?>">先点选本项，再填写源站地址（可写 <code>toptime.cc</code>，保存时会补上 https）。只填地址、不点选本项，保存后地址还在，但不会生效。按访客当前路径回源，并把源站域名改写成本站域名，<strong>浏览器地址栏不变</strong>。源站用 IP 时，在第二个框填回源 Host。</p>
+            <hr style="margin:12px 0;border:0;border-top:1px solid #e0e0e0">
+            <p class="description" style="margin:0 0 6px"><strong>B. 兼容 V1 的跳转</strong>：以下为 302 跳转，<strong>浏览器地址会变成目标地址、会闪一下</strong>，一般不推荐，仅在必须跳到固定网址时用。</p>
             <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="wp_page_redirect" <?php checked($m, 'wp_page_redirect'); ?>> 跳转到站内页面（302）：使用上方所选页面的固定链接</label><br>
             <label><input type="radio" name="<?php echo esc_attr($name); ?>" value="external_redirect" <?php checked($m, 'external_redirect'); ?>> 跳转到外部链接（302）：</label>
             <input type="url" class="regular-text" name="<?php echo esc_attr($opt . '[' . $side . '_external_url]'); ?>" value="<?php echo esc_attr($s[$side . '_external_url'] ?? ''); ?>" placeholder="https://go.example.com/"><br>
@@ -158,12 +189,22 @@ class Cloak_Attr_Admin
                 </table>
 
                 <h2 class="title">审核内容（未归因访客看到）</h2>
+                <p class="description" style="margin:0 0 8px">没有有效归因参数的访客看到这里配置的内容。<strong>这里选「输出方式」决定插件实际用哪种方式输出；它优先于斗篷商户后台的审核内容设置。</strong>想用商户后台维护的审核页，请在下面选「使用平台配置的审核模板」。</p>
                 <table class="form-table" role="presentation">
                     <tr>
                         <th scope="row">输出方式</th>
                         <td>
                             <?php $this->mode_options($opt, 'review', $s, $pages); ?>
-                            <p class="description">前 4 种在当前地址以 200 输出，不改 URL；后 3 种是兼容 V1 的 302 跳转，浏览器地址会变。</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="ca-cache-ttl">深度代理缓存</label></th>
+                        <td>
+                            <input id="ca-cache-ttl" type="number" min="0" max="30" step="1" class="small-text" name="<?php echo $opt; ?>[proxy_cache_days]" value="<?php echo esc_attr((string) Cloak_Attr_Settings::cache_days($s)); ?>"> 天
+                            <p class="description">按天设置。保存时换算成秒：1 天 = 86400 秒。同一页面（含样式、脚本、图片）第一次回源并改写后写入本机缓存，有效期内直接返回。0 表示关闭，最长 30 天。登录、购物车这类个人页面不进缓存。改完要点下面的「保存更改」。</p>
+                            <p>
+                                <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=cloak_attr_purge_cache'), 'cloak_attr_purge_cache')); ?>">清除深度代理缓存</a>
+                            </p>
                         </td>
                     </tr>
                     <tr>
@@ -178,7 +219,6 @@ class Cloak_Attr_Admin
                         <th scope="row">输出方式</th>
                         <td>
                             <?php $this->mode_options($opt, 'real', $s, $pages); ?>
-                            <p class="description">默认「继续显示当前网站」：带有效归因参数的访客直接看到他打开的这篇页面，无需另建真实页。仅在需要把真实访客导向另一个页面 / 外链 / 文件时才改为其它模式。</p>
                         </td>
                     </tr>
                     <tr>

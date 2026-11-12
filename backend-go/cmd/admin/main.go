@@ -13,6 +13,7 @@ import (
 	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
 	"cloak/internal/app/bootstrap"
+	"cloak/internal/app/cloaksvc"
 	"cloak/internal/app/decisionsvc"
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
@@ -20,6 +21,7 @@ import (
 	"cloak/internal/app/platformsvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
+	"cloak/internal/app/telegramsvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/auth"
 	"cloak/internal/pkg/httpserver"
@@ -62,6 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 	siteSvc := sitesvc.New(siteRepo, merchantRepo, rt.Cfg.Gateway.EntryHost, rt.Cfg.App.UploadDir, rt.Cfg.App.PublicURL).WithSecretBox(box)
+	cloakSvc := cloaksvc.New(mysql.NewCloakRepo(db), merchantRepo)
 	attrSvc := attrsvc.New(attrRepo, siteRepo, merchantRepo)
 
 	// 配置快照：任何站点级写操作后异步重建并发布到 Redis
@@ -89,12 +92,23 @@ func main() {
 	if rdb != nil {
 		qc = quota.New(rdb)
 	}
+	opsRepo := mysql.NewOpsRepo(db)
 	opsSvc := opssvc.New(opssvc.Deps{
-		Repo: mysql.NewOpsRepo(db), Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
-		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Log: rt.Log,
+		Repo: opsRepo, Logs: logRepo, Sites: siteRepo, Merchants: merchantRepo, Quota: qc,
+		Notify: rt.Cfg.Notify, ExportDir: rt.Cfg.Worker.ExportDir, Box: box, Log: rt.Log,
+	})
+	telegramSvc := telegramsvc.New(telegramsvc.Deps{
+		Repo: opsRepo, Ops: opsSvc, Merchants: merchantRepo, Sites: siteRepo,
+		Box: box, Rdb: rdb, Notify: rt.Cfg.Notify, Log: rt.Log,
 	})
 	platformRepo := mysql.NewPlatformRepo(db)
 	platformSvc := platformsvc.New(platformRepo, repo, siteRepo, merchantRepo, tokens, rdb, rt.Cfg.Notify.ConsoleURL)
+	platformSvc.SetDataDir(rt.Cfg.App.UploadDir)
+	platformSvc.OnRepublish(func(ids []uint64) {
+		for _, id := range ids {
+			publisher.PublishAsync(id)
+		}
+	})
 	opsSvc.SetAttemptSource(func(ctx context.Context) int {
 		n, err := platformRepo.WebhookAttempts(ctx)
 		if err != nil {
@@ -130,11 +144,13 @@ func main() {
 		Merchants:   merchantSvc,
 		Users:       userSvc,
 		Sites:       siteSvc,
+		Cloaks:      cloakSvc,
 		Attribution: attrSvc,
 		Decision:    decisionSvc,
 		Publisher:   publisher,
 		Logs:        logSvc,
 		Ops:         opsSvc,
+		Telegram:    telegramSvc,
 		Platform:    platformSvc,
 		Rdb:         rdb,
 		Repo:        merchantRepo,

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +30,22 @@ func newTransports(cfg config.Proxy) *transports {
 		cfg.MaxIdlePerHost = 64
 	}
 	return &transports{cfg: cfg, m: map[time.Duration]*http.Transport{}}
+}
+
+// roundTrip 回源。serverName 非空时用它校验源站证书，连接仍然打到请求 URL 的地址。
+func (t *transports) roundTrip(req *http.Request, timeout time.Duration, serverName string) (*http.Response, error) {
+	tr := t.get(timeout)
+	if serverName != "" && !strings.EqualFold(serverName, req.URL.Hostname()) {
+		tr = tr.Clone()
+		base := tr.TLSClientConfig
+		if base == nil {
+			base = &tls.Config{MinVersion: tls.VersionTLS12}
+		}
+		cfg := base.Clone()
+		cfg.ServerName = serverName
+		tr.TLSClientConfig = cfg
+	}
+	return tr.RoundTrip(req)
 }
 
 // get 返回响应头超时为 timeout 的 Transport。

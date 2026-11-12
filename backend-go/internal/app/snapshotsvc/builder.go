@@ -85,19 +85,42 @@ func (b *Builder) Build(ctx context.Context, siteID uint64) (*snapshot.Site, err
 		out.Review.Source = review.Source
 		switch review.Source {
 		case domainsite.ReviewTemplate:
-			if review.TemplateID != nil {
-				if t, err := b.sites.FindTemplate(ctx, *review.TemplateID); err == nil {
-					out.Review.TemplateHTML = t.HTML
-				}
-			}
 			vars := map[string]string{}
 			_ = json.Unmarshal(review.TemplateVars, &vars)
 			out.Review.TemplateVars = vars
+			if review.TemplateID == nil {
+				break
+			}
+			t, err := b.sites.FindTemplate(ctx, *review.TemplateID)
+			if err != nil || t.Status == "disabled" {
+				out.Review.TemplateKind = "html"
+				out.Review.TemplateHTML = ""
+				break
+			}
+			out.Review.TemplateKind = t.Kind
+			if t.Kind == "" {
+				out.Review.TemplateKind = "html"
+			}
+			switch out.Review.TemplateKind {
+			case "url":
+				out.Review.TemplateURL = t.URL
+				out.Review.TemplateHost = t.HostHeader
+				out.Review.TemplateTimeoutMs = t.TimeoutMs
+			case "static":
+				if f, err := b.sites.FindTemplateFile(ctx, t.ID, t.ActiveVersion); err == nil {
+					out.Review.StaticDir = f.Dir
+					out.Review.StaticEntry = f.Entry
+					out.Review.StaticSpaFallback = t.SpaFallback
+				}
+			default:
+				out.Review.TemplateHTML = t.HTML
+			}
 		case domainsite.ReviewStatic:
 			if review.StaticPackageID != nil {
 				if p, err := b.sites.FindPackage(ctx, *review.StaticPackageID); err == nil {
 					out.Review.StaticDir = p.ObjectKey
 					out.Review.StaticEntry = p.Entry
+					out.Review.StaticSpaFallback = true
 				}
 			}
 		}

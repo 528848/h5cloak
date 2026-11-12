@@ -231,7 +231,7 @@ nano .env.production
 ```
 
 ```ini
-VITE_APP_NAME=斗篷系统
+VITE_APP_NAME=H5Cloak
 VITE_API_URL=https://api.cloak.example.com/api
 VITE_API_PROXY_URL=
 ```

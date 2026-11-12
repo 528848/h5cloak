@@ -10,3 +10,12 @@ export async function pageMerchantApiLogs(params) {
   }
   return Promise.reject(new Error(res.data.msg));
 }
+
+/** 单条 API 调用详情 */
+export async function getMerchantApiLog(id) {
+  const res = await request.get(`/merchant/api-log/${id}`);
+  if (res.data.code === 200) {
+    return res.data.data;
+  }
+  return Promise.reject(new Error(res.data.msg));
+}

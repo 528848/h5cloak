@@ -40,6 +40,7 @@ type ListInput struct {
 	InApp     string
 	VisitorID string
 	RequestID string
+	ShowAll   bool // 显示全部请求，含页面内文件请求；默认只看页面路径
 	Page      int
 	Size      int
 }
@@ -48,7 +49,7 @@ func (s *Service) List(ctx context.Context, merchantID uint64, in ListInput) ([]
 	f := mysql.LogFilter{
 		MerchantID: merchantID, SiteID: in.SiteID, Path: in.Path, TouchType: in.TouchType, Content: in.Content,
 		Channel: in.Channel, Code: in.Code, Reason: in.Reason, Country: strings.ToUpper(in.Country), InApp: in.InApp,
-		VisitorID: in.VisitorID, RequestID: in.RequestID, Page: in.Page, Size: in.Size,
+		VisitorID: in.VisitorID, RequestID: in.RequestID, PageOnly: !in.ShowAll, Page: in.Page, Size: in.Size,
 	}
 	var err error
 	if f.From, err = parseTime(in.From); err != nil {
@@ -214,6 +215,57 @@ func (s *Service) ListAPI(ctx context.Context, merchantID uint64, siteID uint64,
 		})
 	}
 	return out, total, nil
+}
+
+// APIDetail 单条接口日志，并附上同一次请求的判定参数。只带参数名，不带参数明文。
+func (s *Service) APIDetail(ctx context.Context, merchantID, id uint64) (map[string]any, error) {
+	row, err := s.repo.FindAPILog(ctx, id)
+	if err != nil {
+		if errors.Is(err, mysql.ErrNotFound) {
+			return nil, errf(404, "日志不存在或已过期")
+		}
+		return nil, err
+	}
+	if merchantID > 0 && row.MerchantID != merchantID {
+		return nil, errf(404, "日志不存在或已过期")
+	}
+	out := map[string]any{
+		"id": row.ID, "requestId": row.RequestID, "merchantId": row.MerchantID,
+		"siteId": row.SiteID, "keyPrefix": row.KeyPrefix, "endpoint": row.Endpoint,
+		"status": row.Status, "errorCode": row.ErrorCode, "latencyMs": row.LatencyMs, "ip": row.IP,
+		"createdAt":       row.CreatedAt.Format(layout),
+		"queryParamNames": []string{}, "matchedParams": []string{},
+	}
+	if names, err := s.sites.SiteNames(ctx, []uint64{row.SiteID}); err == nil {
+		out["siteName"] = names[row.SiteID]
+	}
+	if merchantID == 0 {
+		if names, err := s.sites.MerchantNames(ctx, []uint64{row.MerchantID}); err == nil {
+			out["merchantName"] = names[row.MerchantID]
+		}
+	}
+	if rec, err := s.repo.FindDecision(ctx, row.RequestID); err == nil && (merchantID == 0 || rec.MerchantID == merchantID) {
+		var qp, mp []string
+		_ = json.Unmarshal(rec.QueryParamNames, &qp)
+		_ = json.Unmarshal(rec.MatchedParams, &mp)
+		if qp == nil {
+			qp = []string{}
+		}
+		if mp == nil {
+			mp = []string{}
+		}
+		out["queryParamNames"] = qp
+		out["matchedParams"] = mp
+		out["method"] = rec.Method
+		out["host"] = rec.Host
+		out["path"] = rec.Path
+		out["code"] = rec.Code
+		out["channel"] = rec.Channel
+		out["visitorId"] = rec.VisitorID
+		out["content"] = rec.Content
+		out["touchType"] = rec.TouchType
+	}
+	return out, nil
 }
 
 func parseTime(s string) (*time.Time, error) {

@@ -1,0 +1,125 @@
+{
+  "description": "跨语言深度代理域名改写黄金用例。各语言 SDK 的 rewriteBodyHost 必须对这组输入产出完全一致的 expect。字段：originHosts 审核站域名；publicHost 客户域名；scheme 访客协议。",
+  "cases": [
+    {
+      "name": "plain_https",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<a href=\"https://review.com/shop\">x</a>",
+      "expect": "<a href=\"https://iris6666.com/shop\">x</a>"
+    },
+    {
+      "name": "protocol_relative",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<link href=\"//review.com/wp-content/a.css\">",
+      "expect": "<link href=\"//iris6666.com/wp-content/a.css\">"
+    },
+    {
+      "name": "uppercase_and_http_upgrade",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<img src=\"HTTP://Review.COM/logo.png\">",
+      "expect": "<img src=\"https://iris6666.com/logo.png\">"
+    },
+    {
+      "name": "subdomain_preserved",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<a href=\"https://cdn.review.com/x\">cdn</a>",
+      "expect": "<a href=\"https://cdn.review.com/x\">cdn</a>"
+    },
+    {
+      "name": "longer_host_preserved",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<a href=\"https://review.comx/x\">longer</a>",
+      "expect": "<a href=\"https://review.comx/x\">longer</a>"
+    },
+    {
+      "name": "escaped_slashes",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<script>var u=\"https:\\/\\/review.com\\/cart\";</script>",
+      "expect": "<script>var u=\"https:\\/\\/iris6666.com\\/cart\";</script>"
+    },
+    {
+      "name": "css_url",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<style>body{background:url(//review.com/bg.png)}</style>",
+      "expect": "<style>body{background:url(//iris6666.com/bg.png)}</style>"
+    },
+    {
+      "name": "percent_encoded",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<a href=\"https://wp.me/share?url=https%3A%2F%2Freview.com%2F\">share</a>",
+      "expect": "<a href=\"https://wp.me/share?url=https%3A%2F%2Firis6666.com%2F\">share</a>"
+    },
+    {
+      "name": "bare_host_footer",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<footer>@2024 review.com.</footer>",
+      "expect": "<footer>@2024 iris6666.com.</footer>"
+    },
+    {
+      "name": "bare_host_title_attr",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<link rel=\"alternate\" title=\"review.com\">",
+      "expect": "<link rel=\"alternate\" title=\"iris6666.com\">"
+    },
+    {
+      "name": "bare_host_json_field",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<script>{\"title\":\"review.com\",\"host\":\"review.com\"}</script>",
+      "expect": "<script>{\"title\":\"iris6666.com\",\"host\":\"iris6666.com\"}</script>"
+    },
+    {
+      "name": "bare_host_comma_boundary",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "sites: review.com,next.org",
+      "expect": "sites: iris6666.com,next.org"
+    },
+    {
+      "name": "bare_subdomain_preserved",
+      "originHosts": ["review.com"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "host is cdn.review.com here",
+      "expect": "host is cdn.review.com here"
+    },
+    {
+      "name": "same_host_noop",
+      "originHosts": ["shop.test"],
+      "publicHost": "shop.test",
+      "scheme": "https",
+      "input": "<a href=\"https://shop.test/a\">a</a>",
+      "expect": "<a href=\"https://shop.test/a\">a</a>"
+    },
+    {
+      "name": "multi_hosts",
+      "originHosts": ["review.com", "assets.reviewcdn.net"],
+      "publicHost": "iris6666.com",
+      "scheme": "https",
+      "input": "<a href=\"https://review.com/a\"><img src=\"https://assets.reviewcdn.net/b.png\">",
+      "expect": "<a href=\"https://iris6666.com/a\"><img src=\"https://iris6666.com/b.png\">"
+    }
+  ]
+}

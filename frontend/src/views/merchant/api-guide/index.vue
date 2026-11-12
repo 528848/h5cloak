@@ -137,10 +137,16 @@
                 <p>网站代码不用改。域名解析到网关后，网关在同一条 URL 上取真实源站或审核内容。</p>
                 <ol class="flow-steps">
                   <li>新建站点，接入方式选「托管接入」或「混合接入」。</li>
-                  <li>在域名管理添加托管域名，把 CNAME 或 A 记录指到网关入口，校验到「已绑定」。</li>
-                  <li>在站点配置填写真实源站。审核内容选平台模板、审核源站或静态包。</li>
+                  <li>在域名管理添加托管域名，把 CNAME 指到网关入口。网关换服务器后不用再改这条解析。校验到「已绑定」。</li>
+                  <li>真实源站填网关能访问到的源站地址。广告域名和真实网站是同一个主域名时，不要把主域名填进真实源站，否则会回源到网关自己。</li>
+                  <li>审核内容选审核源站、平台模板或静态包。选审核源站时，网关会把审核站里的链接改写成访客正在打开的域名。</li>
                   <li>访客打开 <span class="mono">https://你的域名/任意路径</span>。有归因时回源真实站，没有归因时返回审核内容。地址栏仍是这个域名。</li>
                 </ol>
+                <p class="scene-desc flow-note">
+                  广告投在客户主域名、审核站要整站留在这个域名下时，解析方向很容易配反。按
+                  <el-link type="primary" underline="never" @click="router.push('/merchant/api-key/guide')">接入文档第 6 章</el-link>
+                  配置三个地址。
+                </p>
               </div>
             </el-col>
             <el-col :md="12" :xs="24">
@@ -210,6 +216,17 @@
           subtitle="无需写代码，插件完成签名、判定与输出"
           class="page-section"
         >
+          <template #extra>
+            <el-button type="primary" plain @click="downloadPlugin">
+              <el-icon style="margin-right: 4px"><Download /></el-icon>
+              下载插件压缩包 v{{ pluginVersion }}
+            </el-button>
+          </template>
+          <p class="scene-desc">
+            下载后到 WordPress 后台「插件 → 安装插件 → 上传插件」，选择这个
+            <span class="mono">cloak-attribution.zip</span>
+            安装并启用，再在插件设置里填写网关地址与服务端密钥即可。
+          </p>
           <el-steps
             direction="vertical"
             :active="4"
@@ -277,6 +294,7 @@
 <script setup>
   import { ref, computed, watch, onMounted } from 'vue';
   import { useRouter } from 'vue-router';
+  import { Download } from '@element-plus/icons-vue';
   import { EleMessage } from 'ele-admin-plus';
   import { useCurrentSite } from '@/utils/use-site';
   import { getSite, getSiteGuide } from '@/api/merchant/site';
@@ -338,6 +356,16 @@
       path: '/merchant/decision-test',
       query: { siteId: siteId.value }
     });
+
+  const pluginVersion = '2.2.2';
+  const downloadPlugin = () => {
+    const a = document.createElement('a');
+    a.href = `${import.meta.env.BASE_URL}downloads/cloak-attribution.zip`;
+    a.download = `cloak-attribution-${pluginVersion}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   watch(siteId, loadSite);
   onMounted(() => {

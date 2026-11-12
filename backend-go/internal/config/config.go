@@ -90,6 +90,8 @@ type Proxy struct {
 	ReviewNoIndex   bool          `mapstructure:"review_noindex"`    // 审核内容加 X-Robots-Tag
 	InsecureOrigins bool          `mapstructure:"insecure_origins"`  // 跳过源站证书校验（本地自签源站）
 	MaintenanceHTML string        `mapstructure:"maintenance_html"`  // 维护页文件路径，空用内置
+	ReviewCacheTTL  time.Duration `mapstructure:"review_cache_ttl"`  // 审核页缓存时间，0 关闭，默认 5m
+	ReviewCacheMB   int           `mapstructure:"review_cache_mb"`   // 审核页缓存总上限 MB，默认 128
 }
 
 // TLS 网关 HTTPS。mode: off | selfsigned | acme。
@@ -205,6 +207,8 @@ func setDefaults(v *viper.Viper, service string) {
 		v.SetDefault("gateway.proxy.idle_conn_timeout", "90s")
 		v.SetDefault("gateway.proxy.max_idle_per_host", 64)
 		v.SetDefault("gateway.proxy.review_noindex", true)
+		v.SetDefault("gateway.proxy.review_cache_ttl", "5m")
+		v.SetDefault("gateway.proxy.review_cache_mb", 128)
 		v.SetDefault("gateway.tls.mode", "off")
 		v.SetDefault("gateway.tls.addr", ":443")
 		v.SetDefault("gateway.tls.cert_dir", "./.local/certs")

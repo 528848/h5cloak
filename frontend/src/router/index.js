@@ -34,6 +34,9 @@ router.beforeEach(async (to) => {
     NProgress.start();
     setPageTitle(to.meta?.title);
   }
+  if (to.path === '/merchant/alert') {
+    return { path: '/merchant/alert/list', query: to.query, hash: to.hash, replace: true };
+  }
   if (to.path === LOGIN_PATH && to.query.ticket) {
     // 总后台模拟登录票据优先于本地已有会话，由登录页兑换
     removeToken();

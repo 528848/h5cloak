@@ -1,6 +1,10 @@
 package admin
 
 import (
+	"io"
+	"net/http"
+	"strconv"
+
 	"github.com/gin-gonic/gin"
 	goredis "github.com/redis/go-redis/v9"
 
@@ -51,13 +55,22 @@ func (h *platformHandler) nodes(c *gin.Context) {
 	response.Success(c, rows, "查询成功")
 }
 
-func (h *platformHandler) templates(c *gin.Context) {
-	rows, err := h.svc.ListTemplates(c.Request.Context())
+func (h *platformHandler) templateStats(c *gin.Context) {
+	row, err := h.svc.TemplateStats(c.Request.Context())
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	response.Success(c, rows, "查询成功")
+	response.Success(c, row, "查询成功")
+}
+
+func (h *platformHandler) templates(c *gin.Context) {
+	rows, total, err := h.svc.ListTemplates(c.Request.Context(), c.Query("keyword"), c.Query("kind"), c.Query("status"), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 10))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Page(c, rows, total)
 }
 
 func (h *platformHandler) template(c *gin.Context) {
@@ -87,12 +100,12 @@ func (h *platformHandler) saveTemplate(c *gin.Context) {
 			return
 		}
 	}
-	nid, err := h.svc.SaveTemplate(c.Request.Context(), id, in)
+	nid, msg, err := h.svc.SaveTemplate(c.Request.Context(), id, in)
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	response.Success(c, gin.H{"templateId": nid}, "保存成功")
+	response.Success(c, gin.H{"templateId": nid}, msg)
 }
 
 func (h *platformHandler) deleteTemplate(c *gin.Context) {
@@ -107,13 +120,100 @@ func (h *platformHandler) deleteTemplate(c *gin.Context) {
 	response.Success(c, nil, "删除成功")
 }
 
+func (h *platformHandler) templateStatus(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var in struct {
+		Status string `json:"status"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Fail(c, "参数格式无效")
+		return
+	}
+	if err := h.svc.SetTemplateStatus(c.Request.Context(), id, in.Status); err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, nil, "已更新")
+}
+
+func (h *platformHandler) templatePackage(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	file, err := c.FormFile("file")
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, "请选择 zip 文件")
+		return
+	}
+	f, err := file.Open()
+	if err != nil {
+		response.Fail(c, "读取文件失败")
+		return
+	}
+	defer f.Close()
+	ra, ok := f.(io.ReaderAt)
+	if !ok {
+		response.Fail(c, "无法读取压缩包")
+		return
+	}
+	row, err := h.svc.UploadTemplatePackage(c.Request.Context(), id, ra, file.Size, c.PostForm("entry"), c.PostForm("spaFallback") == "true")
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, row, "上传成功")
+}
+
+func (h *platformHandler) templateRollback(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var in struct {
+		Version int `json:"version"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Version <= 0 {
+		response.Fail(c, "请指定版本")
+		return
+	}
+	if err := h.svc.RollbackTemplate(c.Request.Context(), id, in.Version); err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, nil, "已回滚")
+}
+
+func (h *platformHandler) templatePreview(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	var in struct {
+		SiteName string `json:"siteName"`
+		Slogan   string `json:"slogan"`
+	}
+	_ = c.ShouldBindJSON(&in)
+	row, err := h.svc.PreviewTemplate(c.Request.Context(), id, map[string]string{"siteName": in.SiteName, "slogan": in.Slogan})
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, row, "查询成功")
+}
+
 func (h *platformHandler) codes(c *gin.Context) {
 	if h.attr == nil {
 		response.Fail(c, "分销码服务不可用")
 		return
 	}
-	rows, total, err := h.attr.ListCodes(c.Request.Context(), 0, attrsvc.CodeListInput{
-		SiteID: querySiteID(c), Keyword: c.Query("keyword"), Status: c.Query("status"),
+	merchantID, _ := strconv.ParseUint(c.Query("merchantId"), 10, 64)
+	rows, total, err := h.attr.ListCodes(c.Request.Context(), merchantID, attrsvc.CodeListInput{
+		SiteID: querySiteID(c), Keyword: c.Query("keyword"), RawStatus: c.Query("status"),
+		Begin: c.Query("beginTime"), End: c.Query("endTime"),
 		Page: atoi(c.Query("pageNum"), 1), Size: atoi(c.Query("pageSize"), 20),
 	})
 	if err != nil {

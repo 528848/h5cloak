@@ -44,11 +44,21 @@ type MerchantFilter struct {
 	Size    int
 }
 
-// RoleRepository 角色读取。
+// RoleRepository 角色读取与商户自建角色维护。
 type RoleRepository interface {
 	ListByScope(ctx context.Context, scope string) ([]Role, error)
+	// ListForMerchant 内置商户角色，加上该商户自己创建的角色（含停用）。
+	ListForMerchant(ctx context.Context, merchantID uint64) ([]Role, error)
 	FindByKeys(ctx context.Context, keys []string) ([]Role, error)
 	FindByIDs(ctx context.Context, ids []uint64) ([]Role, error)
+	FindRole(ctx context.Context, id uint64) (*Role, error)
+	CreateRole(ctx context.Context, role *Role) error
+	UpdateRole(ctx context.Context, role *Role, fields ...string) error
+	DeleteRole(ctx context.Context, id uint64) error
+	CountRoleUsers(ctx context.Context, roleID uint64) (int64, error)
+	RoleMenuIDs(ctx context.Context, roleID uint64) ([]uint64, error)
+	ReplaceRoleMenus(ctx context.Context, roleID uint64, menuIDs []uint64) error
+	ListMenus(ctx context.Context, portal string) ([]Menu, error)
 }
 
 // MenuRepository 菜单读取。

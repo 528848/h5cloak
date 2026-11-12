@@ -61,8 +61,8 @@ func renderTemplate(src string, vars map[string]string) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// serveStatic 从静态包目录按路径返回文件；不存在时返回 entry（SPA 兼容）。
-func serveStatic(w http.ResponseWriter, r *http.Request, site *snapshot.Site) bool {
+// serveStatic 从静态包目录按路径返回文件。spa 为真时，文件不存在则回入口页。
+func serveStatic(w http.ResponseWriter, r *http.Request, site *snapshot.Site, spa bool) bool {
 	dir := site.Review.StaticDir
 	if dir == "" {
 		return false
@@ -73,13 +73,24 @@ func serveStatic(w http.ResponseWriter, r *http.Request, site *snapshot.Site) bo
 	}
 	target := filepath.Join(dir, filepath.FromSlash(clean))
 	st, err := os.Stat(target)
-	if err != nil || st.IsDir() {
-		entry := site.Review.StaticEntry
-		if entry == "" {
-			entry = "index.html"
+	if err != nil {
+		if !spa {
+			return false
 		}
-		target = filepath.Join(dir, filepath.FromSlash(entry))
+		target = staticEntryPath(dir, site.Review.StaticEntry)
 		if _, err := os.Stat(target); err != nil {
+			return false
+		}
+	} else if st.IsDir() {
+		index := filepath.Join(target, "index.html")
+		if _, err := os.Stat(index); err == nil {
+			target = index
+		} else if spa {
+			target = staticEntryPath(dir, site.Review.StaticEntry)
+			if _, err := os.Stat(target); err != nil {
+				return false
+			}
+		} else {
 			return false
 		}
 	}
@@ -96,6 +107,13 @@ func serveStatic(w http.ResponseWriter, r *http.Request, site *snapshot.Site) bo
 	// ServeContent 处理 Content-Type、Range、If-Modified-Since；路径已限定在目录内
 	http.ServeContent(w, r, filepath.Base(target), fi.ModTime(), f)
 	return true
+}
+
+func staticEntryPath(dir, entry string) string {
+	if entry == "" {
+		entry = "index.html"
+	}
+	return filepath.Join(dir, filepath.FromSlash(entry))
 }
 
 const defaultReviewHTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{.siteName}}</title><style>body{margin:0;font-family:sans-serif;background:#f6f7f9;color:#1f2329}main{max-width:720px;margin:48px auto;padding:0 20px;line-height:1.7}</style></head><body><main><h1>{{.siteName}}</h1><p>{{.slogan}}</p><p>Welcome. Please contact us through the information published on this page for more details.</p></main></body></html>`

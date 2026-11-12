@@ -16,7 +16,64 @@ type userHandler struct{ svc *usersvc.Service }
 
 // GET /merchant/role/list
 func (h *userHandler) roles(c *gin.Context) {
-	rows, err := h.svc.Roles(c.Request.Context())
+	rows, err := h.svc.Roles(c.Request.Context(), *middleware.User(c).MerchantID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, rows, "查询成功")
+}
+
+func (h *userHandler) manageRoles(c *gin.Context) {
+	rows, err := h.svc.ManageRoles(c.Request.Context(), *middleware.User(c).MerchantID)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, rows, "查询成功")
+}
+
+func (h *userHandler) saveRole(c *gin.Context) {
+	var in usersvc.RoleInput
+	if err := c.ShouldBindJSON(&in); err != nil {
+		response.Error(c, http.StatusBadRequest, "参数错误")
+		return
+	}
+	mid := *middleware.User(c).MerchantID
+	if c.Param("id") == "" {
+		id, err := h.svc.CreateRole(c.Request.Context(), mid, in)
+		if err != nil {
+			writeErr(c, err)
+			return
+		}
+		response.Success(c, gin.H{"roleId": id}, "保存成功")
+		return
+	}
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.UpdateRole(c.Request.Context(), mid, id, in); err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, nil, "保存成功")
+}
+
+func (h *userHandler) removeRole(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.DeleteRole(c.Request.Context(), *middleware.User(c).MerchantID, id); err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, nil, "删除成功")
+}
+
+func (h *userHandler) menus(c *gin.Context) {
+	rows, err := h.svc.ListMenus(c.Request.Context())
 	if err != nil {
 		writeErr(c, err)
 		return

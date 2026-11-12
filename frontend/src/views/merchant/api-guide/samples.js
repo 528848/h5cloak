@@ -293,7 +293,7 @@ session["channel"] = out["data"].get("channel")`
   {
     key: 'resolve',
     title: '场景三：下单时查归因',
-    desc: '结账或创建订单时，用访客 Cookie 查出这位访客归属哪个分销码、哪个渠道，写进订单。',
+    desc: '结账或创建订单时，用访客 Cookie 查出这位访客归属哪个归因码、哪个渠道，写进订单。',
     endpoint: 'POST /api/open/v2/attribution/resolve',
     code: {
       php: `$res = cloakRequest('POST', '/api/open/v2/attribution/resolve', [
@@ -330,7 +330,7 @@ if attr.get("found"):
   {
     key: 'conversion',
     title: '场景四：支付成功后回传转化',
-    desc: '支付成功回调里把订单号、金额和访客 Cookie（或邮箱）回传，系统会累计到对应分销码的转化数，并把同一邮箱的不同访客合并。接口幂等，重复回传同一订单号不会重复计数。',
+    desc: '支付成功回调里把订单号、金额和访客 Cookie（或邮箱）回传，系统会累计到对应归因码的转化数，并把同一邮箱的不同访客合并。接口幂等，重复回传同一订单号不会重复计数。',
     endpoint: 'POST /api/open/v2/conversions',
     code: {
       php: `cloakRequest('POST', '/api/open/v2/conversions', [
@@ -368,7 +368,7 @@ curl -X POST {{BASE}}/api/open/decision \\
   -d '{"host":"{{HOST}}","path":"/lp","query":"ref=ALICE","ip":"203.0.113.10","userAgent":"Mozilla/5.0"}'
 # 返回 data.page = real | review（兼容字段），同时含 v2 的 content / cookie / renderHint`;
 
-export const jsSdkSample = `<!-- 1. 页面引入 SDK（公钥 pk_ 可公开，Origin 必须是站点已绑定域名） -->
+export const jsSdkSample = `<!-- 放在 </body> 之前，每个 HTML 页只引一次。公钥 pk_ 可公开，打开页面的域名必须已绑定 -->
 <script src="{{BASE}}/_cloak/sdk.js" data-key="{{PK}}" async></script>
 
 <!-- 2. 真实内容与审核内容各放一个区块；SDK 按判定结果显示其一，加载完成前两块都隐藏 -->

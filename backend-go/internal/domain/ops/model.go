@@ -235,8 +235,9 @@ type Export struct {
 func (Export) TableName() string { return "exports" }
 
 const (
-	ExportPending = "pending"
-	ExportRunning = "running"
-	ExportDone    = "done"
-	ExportFailed  = "failed"
+	ExportPending   = "pending"
+	ExportRunning   = "running"
+	ExportDone      = "done"
+	ExportFailed    = "failed"
+	ExportCancelled = "cancelled"
 )

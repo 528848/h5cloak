@@ -18,6 +18,45 @@
             </el-form-item>
           </el-col>
           <el-col :lg="6" :md="8" :sm="12" :xs="24">
+            <el-form-item label="所属商户">
+              <el-select
+                v-model="form.merchantId"
+                filterable
+                remote
+                clearable
+                reserve-keyword
+                placeholder="输入商户名称搜索"
+                :remote-method="searchMerchants"
+                :loading="merchantLoading"
+                class="ele-fluid"
+              >
+                <el-option
+                  v-for="item in merchantOptions"
+                  :key="item.merchantId"
+                  :label="item.merchantName"
+                  :value="item.merchantId"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :lg="6" :md="8" :sm="12" :xs="24">
+            <el-form-item label="接入方式">
+              <el-select
+                v-model="form.siteType"
+                clearable
+                placeholder="全部"
+                class="ele-fluid"
+              >
+                <el-option
+                  v-for="o in siteTypeOptions"
+                  :key="o.value"
+                  :label="o.label"
+                  :value="o.value"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :lg="6" :md="8" :sm="12" :xs="24">
             <el-form-item label="状态">
               <el-select
                 v-model="form.status"
@@ -116,6 +155,7 @@
     getAdminSiteStats,
     updateAdminSiteStatus
   } from '@/api/admin/site';
+  import { pageMerchants } from '@/api/admin/merchant';
   import {
     siteStatusOptions,
     siteTypeOptions,
@@ -127,7 +167,34 @@
 
   const tableRef = ref(null);
   const stats = ref({ total: 0, enabled: 0, disabled: 0, domainAbnormal: 0 });
-  const [form, resetFields] = useFormData({ keyword: '', status: '' });
+  const merchantOptions = ref([]);
+  const merchantLoading = ref(false);
+  let merchantTimer;
+  const [form, resetFields] = useFormData({
+    keyword: '',
+    status: '',
+    merchantId: undefined,
+    siteType: ''
+  });
+
+  const searchMerchants = (keyword) => {
+    clearTimeout(merchantTimer);
+    merchantTimer = setTimeout(async () => {
+      merchantLoading.value = true;
+      try {
+        const res = await pageMerchants({
+          keyword: (keyword || '').trim(),
+          pageNum: 1,
+          pageSize: 20
+        });
+        merchantOptions.value = res.rows || [];
+      } catch (e) {
+        merchantOptions.value = [];
+      } finally {
+        merchantLoading.value = false;
+      }
+    }, 300);
+  };
 
   const summaryItems = computed(() => [
     {

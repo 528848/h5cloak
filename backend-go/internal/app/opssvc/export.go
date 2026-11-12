@@ -46,31 +46,113 @@ func (s *Service) CreateExport(ctx context.Context, merchantID, userID uint64, k
 		return nil, errf(400, "不支持的导出类型")
 	}
 	pj, _ := json.Marshal(p)
+	n, err := s.repo.CountExports(ctx, merchantID, []string{ops.ExportPending, ops.ExportRunning})
+	if err != nil {
+		return nil, err
+	}
+	if n >= 3 {
+		return nil, errf(429, "已有 3 个导出任务在处理，请到下载中心查看")
+	}
 	row := &ops.Export{MerchantID: merchantID, UserID: userID, Kind: kind, Params: pj, Status: ops.ExportPending, CreatedAt: s.now()}
 	if err := s.repo.CreateExport(ctx, row); err != nil {
 		return nil, err
 	}
-	return exportView(*row), nil
+	return exportView(*row, "", s.now()), nil
 }
 
-func (s *Service) Exports(ctx context.Context, merchantID uint64, page, size int) ([]map[string]any, int64, error) {
-	rows, total, err := s.repo.ListExports(ctx, merchantID, page, size)
+func (s *Service) Exports(ctx context.Context, merchantID uint64, kind, status, from, to string, page, size int) ([]map[string]any, int64, error) {
+	fromT, toT := parseExportDate(from), parseExportDate(to)
+	if toT != nil {
+		end := toT.Add(24 * time.Hour)
+		toT = &end
+	}
+	rows, total, err := s.repo.ListExports(ctx, merchantID, kind, status, fromT, toT, page, size)
 	if err != nil {
 		return nil, 0, err
 	}
+	names := map[uint64]string{}
+	ids := make([]uint64, 0, len(rows))
+	for _, r := range rows {
+		var p ExportParams
+		_ = json.Unmarshal(r.Params, &p)
+		if p.SiteID > 0 {
+			ids = append(ids, p.SiteID)
+		}
+	}
+	if len(ids) > 0 && s.sites != nil {
+		names, _ = s.sites.SiteNames(ctx, ids)
+	}
+	now := s.now()
 	out := make([]map[string]any, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, exportView(r))
+		var p ExportParams
+		_ = json.Unmarshal(r.Params, &p)
+		out = append(out, exportView(r, names[p.SiteID], now))
 	}
 	return out, total, nil
 }
 
-func exportView(e ops.Export) map[string]any {
-	v := map[string]any{"id": e.ID, "kind": e.Kind, "kindName": ExportKinds[e.Kind], "status": e.Status, "fileSize": e.FileSize,
-		"rowCount": e.RowCount, "error": e.Error, "createdAt": e.CreatedAt.Format(layout)}
+func (s *Service) ExportStats(ctx context.Context, merchantID uint64) (map[string]any, error) {
+	now := s.now()
+	active, err := s.repo.CountExports(ctx, merchantID, []string{ops.ExportPending, ops.ExportRunning})
+	if err != nil {
+		return nil, err
+	}
+	ready, err := s.repo.CountDoneExports(ctx, merchantID, false, now)
+	if err != nil {
+		return nil, err
+	}
+	expired, err := s.repo.CountDoneExports(ctx, merchantID, true, now)
+	if err != nil {
+		return nil, err
+	}
+	failed, err := s.repo.CountExports(ctx, merchantID, []string{ops.ExportFailed})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"active": active, "ready": ready, "expired": expired, "failed": failed}, nil
+}
+
+func (s *Service) RetryExport(ctx context.Context, merchantID, userID, id uint64) (map[string]any, error) {
+	e, err := s.repo.FindExport(ctx, merchantID, id)
+	if err != nil {
+		return nil, errf(404, "导出不存在")
+	}
+	if e.Status != ops.ExportFailed {
+		return nil, errf(400, "只有失败的任务可以重试")
+	}
 	var p ExportParams
 	_ = json.Unmarshal(e.Params, &p)
-	v["params"] = p
+	return s.CreateExport(ctx, merchantID, userID, e.Kind, p)
+}
+
+func (s *Service) CancelExport(ctx context.Context, merchantID, id uint64) error {
+	e, err := s.repo.FindExport(ctx, merchantID, id)
+	if err != nil {
+		return errf(404, "导出不存在")
+	}
+	if e.Status == ops.ExportRunning {
+		return errf(400, "生成中的任务不能取消")
+	}
+	if e.Status != ops.ExportPending {
+		return errf(400, "该任务不能取消")
+	}
+	e.Status = ops.ExportCancelled
+	now := s.now()
+	e.FinishedAt = &now
+	return s.repo.UpdateExport(ctx, e)
+}
+
+func exportView(e ops.Export, siteName string, now time.Time) map[string]any {
+	expired := e.Status == ops.ExportDone && e.ExpiresAt != nil && now.After(*e.ExpiresAt)
+	var p ExportParams
+	_ = json.Unmarshal(e.Params, &p)
+	v := map[string]any{
+		"id": e.ID, "kind": e.Kind, "kindName": ExportKinds[e.Kind], "status": e.Status,
+		"fileSize": e.FileSize, "rowCount": e.RowCount, "error": e.Error,
+		"createdAt": e.CreatedAt.Format(layout), "expired": expired, "scopeText": scopeText(p, siteName),
+		"params": p,
+	}
 	if e.FinishedAt != nil {
 		v["finishedAt"] = e.FinishedAt.Format(layout)
 	}
@@ -78,6 +160,36 @@ func exportView(e ops.Export) map[string]any {
 		v["expiresAt"] = e.ExpiresAt.Format(layout)
 	}
 	return v
+}
+
+func scopeText(p ExportParams, siteName string) string {
+	label := map[string]string{"today": "今日", "yesterday": "昨日", "7d": "近 7 日", "30d": "近 30 日"}[p.RangeKey]
+	if p.RangeKey == "custom" && p.From != "" {
+		label = p.From + " ~ " + p.To
+	}
+	if label == "" {
+		label = "全部时间"
+	}
+	site := "全部站点"
+	if p.SiteID > 0 {
+		site = siteName
+		if site == "" {
+			site = "指定站点"
+		}
+	}
+	return label + " · " + site
+}
+
+func parseExportDate(s string) *time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	t, err := time.ParseInLocation("2006-01-02", s, time.Local)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 // DownloadToken 签名下载凭证：id.exp.sig。
@@ -185,7 +297,7 @@ func (s *Service) runExport(ctx context.Context, e *ops.Export) {
 		e.FileSize = uint64(st.Size())
 	}
 	_ = s.repo.UpdateExport(ctx, e)
-	link := strings.TrimRight(s.cfg.ConsoleURL, "/") + "/merchant/report?tab=export"
+	link := strings.TrimRight(s.cfg.ConsoleURL, "/") + "/merchant/download"
 	refType, refID := "export", e.ID
 	_ = s.repo.CreateNotification(ctx, &ops.Notification{MerchantID: e.MerchantID, Kind: "export", Severity: "info",
 		Title: ExportKinds[e.Kind] + "导出完成", Content: fmt.Sprintf("共 %d 行，24 小时内可下载", rows), Link: &link, RefType: &refType, RefID: &refID, CreatedAt: now})

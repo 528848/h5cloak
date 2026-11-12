@@ -71,7 +71,7 @@
     <router-layout />
     <!-- logo -->
     <template #logo>
-      <img src="@/assets/logo.png" style="width: 42px; height: 42px" />
+      <img src="@/assets/logo.png" alt="H5Cloak" style="width: 42px; height: 42px; object-fit: contain" />
     </template>
     <template #logoTitle>
       <h1>{{ PROJECT_NAME }}</h1>
@@ -489,7 +489,7 @@
         return menu.meta.lang[locale];
       }
     }
-    const langKey = `layoutMenus.${(menu.path || '').replace(/\./g, '_')}`;
+    const langKey = `layoutMenus.${(menu?.path || '').replace(/\./g, '_')}`;
     const langTitle = t(langKey);
     return (langTitle === langKey ? void 0 : langTitle) || menu?.meta?.title;
   };

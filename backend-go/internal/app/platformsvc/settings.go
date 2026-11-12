@@ -16,6 +16,7 @@ import (
 	domainsite "cloak/internal/domain/site"
 	"cloak/internal/engine/globalcfg"
 	"cloak/internal/engine/params"
+	"cloak/internal/engine/pathrule"
 	"cloak/internal/engine/ua"
 )
 
@@ -27,11 +28,23 @@ type Service struct {
 	tokens     *auth.TokenManager
 	rdb        *goredis.Client
 	consoleURL string
+	dataDir    string
+	republish  func([]uint64)
 }
 
 func New(settings *mysql.PlatformRepo, id *mysql.IdentityRepo, sites *mysql.SiteRepo, merchants identity.MerchantRepository, tokens *auth.TokenManager, rdb *goredis.Client, consoleURL string) *Service {
-	return &Service{settings: settings, id: id, sites: sites, merchants: merchants, tokens: tokens, rdb: rdb, consoleURL: consoleURL}
+	return &Service{settings: settings, id: id, sites: sites, merchants: merchants, tokens: tokens, rdb: rdb, consoleURL: consoleURL, dataDir: "./uploads"}
 }
+
+// SetDataDir 静态模板解压目录的根。
+func (s *Service) SetDataDir(dir string) {
+	if dir != "" {
+		s.dataDir = dir
+	}
+}
+
+// OnRepublish 模板变更后重建引用它的站点快照。
+func (s *Service) OnRepublish(fn func([]uint64)) { s.republish = fn }
 
 func errf(code int, msg string) error { return &authsvc.Error{Code: code, Msg: msg} }
 
@@ -75,6 +88,8 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]any, error) {
 	rules, ruleCustom := decodeRules(row.DefaultPathRules)
 	if !ruleCustom {
 		rules = builtinRuleView()
+	} else {
+		rules = omitPlatformStatic(rules)
 	}
 	updated := ""
 	if !row.UpdatedAt.IsZero() {
@@ -90,7 +105,8 @@ func (s *Service) GetSettings(ctx context.Context) (map[string]any, error) {
 		"adReferers":         refs, "adReferersCustom": refCustom,
 		"inAppMarkers": markers, "inAppMarkersCustom": markerCustom,
 		"defaultPathRules": rules, "defaultPathRulesCustom": ruleCustom,
-		"updatedAt": updated,
+		"staticPathRules": pathrule.StaticView(),
+		"updatedAt":       updated,
 	}, nil
 }
 
@@ -121,7 +137,7 @@ func (s *Service) SaveSettings(ctx context.Context, in SettingsInput) error {
 	if err != nil {
 		return err
 	}
-	rules, err := cleanRules(in.DefaultPathRules, in.DefaultPathRulesCustom)
+	rules, err := cleanRules(omitPlatformStatic(in.DefaultPathRules), in.DefaultPathRulesCustom)
 	if err != nil {
 		return err
 	}
@@ -151,7 +167,7 @@ func (s *Service) Publish(ctx context.Context) error {
 	markers, markerCustom := decodeMarkers(row.InAppMarkers)
 	rules, ruleCustom := decodeRules(row.DefaultPathRules)
 	if ruleCustom {
-		domainsite.SetDefaultPathRules(toPathRules(rules))
+		domainsite.SetDefaultPathRules(toPathRules(omitPlatformStatic(rules)))
 	} else {
 		domainsite.SetDefaultPathRules(nil)
 	}
@@ -182,88 +198,6 @@ func (s *Service) Publish(ctx context.Context) error {
 	pipe.Publish(ctx, globalcfg.ChangeChannel, globalcfg.ChangeMessage)
 	_, err = pipe.Exec(ctx)
 	return err
-}
-
-func (s *Service) ListTemplates(ctx context.Context) ([]map[string]any, error) {
-	rows, err := s.sites.ListTemplates(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]map[string]any, 0, len(rows))
-	for i := range rows {
-		out = append(out, templateRow(&rows[i], false))
-	}
-	return out, nil
-}
-
-func (s *Service) GetTemplate(ctx context.Context, id uint64) (map[string]any, error) {
-	t, err := s.sites.FindTemplate(ctx, id)
-	if err != nil {
-		return nil, errf(404, "模板不存在")
-	}
-	return templateRow(t, true), nil
-}
-
-type TemplateInput struct {
-	Code        string `json:"code"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	HTML        string `json:"html"`
-}
-
-func (s *Service) SaveTemplate(ctx context.Context, id uint64, in TemplateInput) (uint64, error) {
-	in.Code = strings.TrimSpace(in.Code)
-	in.Name = strings.TrimSpace(in.Name)
-	if in.Code == "" || in.Name == "" {
-		return 0, errf(400, "请填写模板编码和名称")
-	}
-	if len(in.HTML) == 0 || len(in.HTML) > 200_000 {
-		return 0, errf(400, "模板 HTML 不能为空，且不超过 200KB")
-	}
-	rows, err := s.sites.ListTemplates(ctx)
-	if err != nil {
-		return 0, err
-	}
-	for i := range rows {
-		if rows[i].Code == in.Code && rows[i].ID != id {
-			return 0, errf(400, "模板编码已存在")
-		}
-	}
-	t := &domainsite.Template{ID: id, Code: in.Code, Name: in.Name, Description: identity.Ptr(in.Description), HTML: in.HTML}
-	if id > 0 {
-		if _, err := s.sites.FindTemplate(ctx, id); err != nil {
-			return 0, errf(404, "模板不存在")
-		}
-	}
-	if err := s.sites.SaveTemplate(ctx, t); err != nil {
-		return 0, err
-	}
-	return t.ID, nil
-}
-
-func (s *Service) DeleteTemplate(ctx context.Context, id uint64) error {
-	if _, err := s.sites.FindTemplate(ctx, id); err != nil {
-		return errf(404, "模板不存在")
-	}
-	used, err := s.sites.TemplateInUse(ctx, id)
-	if err != nil {
-		return err
-	}
-	if used {
-		return errf(400, "模板正被站点审核页使用，不能删除")
-	}
-	return s.sites.DeleteTemplate(ctx, id)
-}
-
-func templateRow(t *domainsite.Template, withHTML bool) map[string]any {
-	row := map[string]any{
-		"templateId": t.ID, "code": t.Code, "name": t.Name, "description": deref(t.Description),
-		"createdAt": t.CreatedAt.Format("2006-01-02 15:04:05"),
-	}
-	if withHTML {
-		row["html"] = t.HTML
-	}
-	return row
 }
 
 func deref(p *string) string {
@@ -386,6 +320,17 @@ func cleanMarkers(in []ua.Marker, custom bool) ([]ua.Marker, error) {
 		return nil, errf(400, "内置浏览器特征最多 200 条")
 	}
 	return out, nil
+}
+
+func omitPlatformStatic(in []pathRuleIn) []pathRuleIn {
+	out := make([]pathRuleIn, 0, len(in))
+	for _, r := range in {
+		if pathrule.IsPlatformStatic(r.Pattern, r.MatchType, r.Action) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 func cleanRules(in []pathRuleIn, custom bool) ([]pathRuleIn, error) {

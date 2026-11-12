@@ -53,7 +53,7 @@ func (r *SiteRepo) DeleteSite(ctx context.Context, id uint64) error {
 	return r.db.WithContext(ctx).Delete(&site.Site{}, id).Error
 }
 
-func (r *SiteRepo) ListSites(ctx context.Context, merchantID uint64, keyword, status string, page, size int) ([]site.Site, int64, error) {
+func (r *SiteRepo) ListSites(ctx context.Context, merchantID uint64, keyword, status, siteType string, page, size int) ([]site.Site, int64, error) {
 	q := r.db.WithContext(ctx).Model(&site.Site{})
 	if merchantID > 0 {
 		q = q.Where("merchant_id = ?", merchantID)
@@ -63,6 +63,9 @@ func (r *SiteRepo) ListSites(ctx context.Context, merchantID uint64, keyword, st
 	}
 	if status != "" {
 		q = q.Where("status = ?", status)
+	}
+	if siteType != "" {
+		q = q.Where("site_type = ?", siteType)
 	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
@@ -123,6 +126,30 @@ func (r *SiteRepo) SiteCounters(ctx context.Context, siteIDs []uint64) (map[uint
 		if o.HealthStatus == site.HealthUnhealthy {
 			c.Unhealthy += o.N
 		}
+	}
+	return out, nil
+}
+
+// OriginURLs 批量取站点真实源站和审核源站地址。
+func (r *SiteRepo) OriginURLs(ctx context.Context, siteIDs []uint64) (map[uint64]map[string]string, error) {
+	out := map[uint64]map[string]string{}
+	if len(siteIDs) == 0 {
+		return out, nil
+	}
+	var rows []struct {
+		SiteID uint64
+		Kind   string
+		URL    string
+	}
+	err := r.db.WithContext(ctx).Model(&site.Origin{}).Select("site_id, kind, url").Where("site_id IN ?", siteIDs).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if out[row.SiteID] == nil {
+			out[row.SiteID] = map[string]string{}
+		}
+		out[row.SiteID][row.Kind] = row.URL
 	}
 	return out, nil
 }
@@ -283,17 +310,86 @@ func (r *SiteRepo) ListTemplates(ctx context.Context) ([]site.Template, error) {
 	return rows, err
 }
 
+// TemplateFilter 平台模板列表筛选。
+type TemplateFilter struct {
+	Keyword string
+	Kind    string
+	Status  string
+	Page    int
+	Size    int
+}
+
+func (r *SiteRepo) ListTemplatesPage(ctx context.Context, f TemplateFilter) ([]site.Template, int64, error) {
+	q := r.db.WithContext(ctx).Model(&site.Template{})
+	if f.Keyword != "" {
+		kw := "%" + escapeLike(f.Keyword) + "%"
+		q = q.Where("code LIKE ? OR name LIKE ?", kw, kw)
+	}
+	if f.Kind != "" {
+		q = q.Where("kind = ?", f.Kind)
+	}
+	if f.Status != "" {
+		q = q.Where("status = ?", f.Status)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []site.Template
+	err := q.Order("id DESC").Offset(offset(f.Page, f.Size)).Limit(limit(f.Size)).Find(&rows).Error
+	return rows, total, err
+}
+
+func (r *SiteRepo) CountTemplatesByKind(ctx context.Context) (map[string]int64, error) {
+	type row struct {
+		Kind string
+		N    int64
+	}
+	var rows []row
+	err := r.db.WithContext(ctx).Model(&site.Template{}).Select("kind, COUNT(*) AS n").Group("kind").Scan(&rows).Error
+	out := map[string]int64{}
+	for _, item := range rows {
+		out[item.Kind] = item.N
+	}
+	return out, err
+}
+
 func (r *SiteRepo) SaveTemplate(ctx context.Context, t *site.Template) error {
+	if t.Kind == "" {
+		t.Kind = "html"
+	}
+	if t.Status == "" {
+		t.Status = "enabled"
+	}
+	if t.Entry == "" {
+		t.Entry = "index.html"
+	}
+	if t.TimeoutMs <= 0 {
+		t.TimeoutMs = 8000
+	}
 	if t.ID == 0 {
 		return r.db.WithContext(ctx).Create(t).Error
 	}
-	return r.db.WithContext(ctx).Model(t).Select("Code", "Name", "Description", "HTML").Updates(t).Error
+	return r.db.WithContext(ctx).Model(t).Select(
+		"Name", "Description", "Kind", "Status", "HTML", "URL", "HostHeader", "TimeoutMs", "Entry", "SpaFallback", "ActiveVersion",
+	).Updates(t).Error
+}
+
+func (r *SiteRepo) TemplateUseCount(ctx context.Context, id uint64) (int64, error) {
+	var n int64
+	err := r.db.WithContext(ctx).Model(&site.ReviewContent{}).Where("template_id = ? AND source = ?", id, site.ReviewTemplate).Count(&n).Error
+	return n, err
 }
 
 func (r *SiteRepo) TemplateInUse(ctx context.Context, id uint64) (bool, error) {
-	var n int64
-	err := r.db.WithContext(ctx).Model(&site.ReviewContent{}).Where("template_id = ?", id).Count(&n).Error
+	n, err := r.TemplateUseCount(ctx, id)
 	return n > 0, err
+}
+
+func (r *SiteRepo) SiteIDsByTemplate(ctx context.Context, id uint64) ([]uint64, error) {
+	var ids []uint64
+	err := r.db.WithContext(ctx).Model(&site.ReviewContent{}).Where("template_id = ? AND source = ?", id, site.ReviewTemplate).Pluck("site_id", &ids).Error
+	return ids, err
 }
 
 func (r *SiteRepo) DeleteTemplate(ctx context.Context, id uint64) error {
@@ -304,6 +400,32 @@ func (r *SiteRepo) FindTemplate(ctx context.Context, id uint64) (*site.Template,
 	var t site.Template
 	err := r.db.WithContext(ctx).First(&t, id).Error
 	return wrap(&t, err)
+}
+
+func (r *SiteRepo) NextTemplateVersion(ctx context.Context, templateID uint64) (int, error) {
+	var v int
+	err := r.db.WithContext(ctx).Model(&site.TemplateFile{}).Where("template_id = ?", templateID).Select("COALESCE(MAX(version),0)").Scan(&v).Error
+	return v + 1, err
+}
+
+func (r *SiteRepo) CreateTemplateFile(ctx context.Context, f *site.TemplateFile) error {
+	return r.db.WithContext(ctx).Create(f).Error
+}
+
+func (r *SiteRepo) ListTemplateFiles(ctx context.Context, templateID uint64) ([]site.TemplateFile, error) {
+	var rows []site.TemplateFile
+	err := r.db.WithContext(ctx).Where("template_id = ?", templateID).Order("version DESC").Find(&rows).Error
+	return rows, err
+}
+
+func (r *SiteRepo) FindTemplateFile(ctx context.Context, templateID uint64, version int) (*site.TemplateFile, error) {
+	var f site.TemplateFile
+	err := r.db.WithContext(ctx).Where("template_id = ? AND version = ?", templateID, version).First(&f).Error
+	return wrap(&f, err)
+}
+
+func (r *SiteRepo) DeleteTemplateFile(ctx context.Context, id uint64) error {
+	return r.db.WithContext(ctx).Delete(&site.TemplateFile{}, id).Error
 }
 
 func (r *SiteRepo) NextPackageVersion(ctx context.Context, siteID uint64) (int, error) {

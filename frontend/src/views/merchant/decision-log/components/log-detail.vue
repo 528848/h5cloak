@@ -64,7 +64,7 @@
               <strong class="mono">{{ data.channel || '-' }}</strong>
             </div>
             <div class="summary-item">
-              <span>分销码</span>
+              <span>归因码</span>
               <strong class="mono">{{ data.code || '-' }}</strong>
             </div>
             <div class="summary-item">

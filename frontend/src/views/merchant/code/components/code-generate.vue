@@ -1,4 +1,4 @@
-<!-- 批量生成分销码 -->
+<!-- 批量生成归因码 -->
 <template>
   <ele-modal
     :form="true"
@@ -28,17 +28,6 @@
               :value="s.siteId"
             />
           </el-select>
-        </el-form-item>
-        <el-form-item label="类型">
-          <el-radio-group v-model="form.codeType">
-            <el-radio
-              v-for="o in codeTypeOptions"
-              :key="o.value"
-              :value="o.value"
-            >
-              {{ o.label }}
-            </el-radio>
-          </el-radio-group>
         </el-form-item>
         <el-row :gutter="12">
           <el-col :span="12">
@@ -114,7 +103,7 @@
     <el-result
       v-else
       icon="success"
-      :title="`已生成 ${result.created} 个码`"
+      :title="`已生成 ${result.created} 个归因码`"
       :sub-title="`耗时 ${result.elapsedMs} ms`"
     >
       <template #extra>
@@ -139,7 +128,6 @@
   import { EleMessage, useModal } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
   import { generateCodes } from '@/api/merchant/code';
-  import { codeTypeOptions } from '../constants';
 
   const props = defineProps({
     siteId: Number,

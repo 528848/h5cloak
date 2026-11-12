@@ -289,8 +289,29 @@ func (r *OpsRepo) FindExport(ctx context.Context, merchantID, id uint64) (*ops.E
 	return wrap(&row, q.First(&row).Error)
 }
 
-func (r *OpsRepo) ListExports(ctx context.Context, merchantID uint64, page, size int) ([]ops.Export, int64, error) {
+func (r *OpsRepo) ListExports(ctx context.Context, merchantID uint64, kind, status string, from, to *time.Time, page, size int) ([]ops.Export, int64, error) {
 	q := r.db.WithContext(ctx).Model(&ops.Export{}).Where("merchant_id = ?", merchantID)
+	if kind != "" {
+		q = q.Where("kind = ?", kind)
+	}
+	now := time.Now()
+	switch status {
+	case "active":
+		q = q.Where("status IN ?", []string{ops.ExportPending, ops.ExportRunning})
+	case "expired":
+		q = q.Where("status = ? AND expires_at IS NOT NULL AND expires_at < ?", ops.ExportDone, now)
+	case ops.ExportDone:
+		q = q.Where("status = ? AND (expires_at IS NULL OR expires_at >= ?)", ops.ExportDone, now)
+	case "":
+	default:
+		q = q.Where("status = ?", status)
+	}
+	if from != nil {
+		q = q.Where("created_at >= ?", *from)
+	}
+	if to != nil {
+		q = q.Where("created_at < ?", *to)
+	}
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -298,6 +319,28 @@ func (r *OpsRepo) ListExports(ctx context.Context, merchantID uint64, page, size
 	var rows []ops.Export
 	err := q.Order("id DESC").Offset(offset(page, size)).Limit(limit(size)).Find(&rows).Error
 	return rows, total, err
+}
+
+func (r *OpsRepo) CountExports(ctx context.Context, merchantID uint64, statuses []string) (int64, error) {
+	var n int64
+	q := r.db.WithContext(ctx).Model(&ops.Export{}).Where("merchant_id = ?", merchantID)
+	if len(statuses) > 0 {
+		q = q.Where("status IN ?", statuses)
+	}
+	err := q.Count(&n).Error
+	return n, err
+}
+
+func (r *OpsRepo) CountDoneExports(ctx context.Context, merchantID uint64, expired bool, now time.Time) (int64, error) {
+	var n int64
+	q := r.db.WithContext(ctx).Model(&ops.Export{}).Where("merchant_id = ? AND status = ?", merchantID, ops.ExportDone)
+	if expired {
+		q = q.Where("expires_at IS NOT NULL AND expires_at < ?", now)
+	} else {
+		q = q.Where("expires_at IS NULL OR expires_at >= ?", now)
+	}
+	err := q.Count(&n).Error
+	return n, err
 }
 
 // ClaimExport 取一个待处理导出并标记为 running。

@@ -27,6 +27,12 @@ export const createExport = (body) =>
   data(request.post('/merchant/export', body));
 export const pageExports = async (params) =>
   ok(await request.get('/merchant/export/list', { params }));
+export const getExportStats = () =>
+  data(request.get('/merchant/export/stats'));
+export const retryExport = (id) =>
+  data(request.post(`/merchant/export/${id}/retry`));
+export const cancelExport = (id) =>
+  data(request.post(`/merchant/export/${id}/cancel`));
 export const getExportLink = (id) =>
   data(request.get(`/merchant/export/${id}/link`));
 export const exportDownloadUrl = (token) =>
@@ -57,6 +63,26 @@ export const getUnreadCount = () =>
   data(request.get(`${prefix}/notification/unread`));
 export const markNotificationsRead = (ids = []) =>
   data(request.post(`${prefix}/notification/read`, { ids }));
+
+// ---- Telegram 自有机器人 ----
+export const getTelegramConfig = () =>
+  data(request.get('/merchant/telegram'));
+export const saveTelegramBot = (token) =>
+  data(request.put('/merchant/telegram/bot', { token }));
+export const deleteTelegramBot = () =>
+  data(request.delete('/merchant/telegram/bot'));
+export const newTelegramBindCode = () =>
+  data(request.post('/merchant/telegram/bind-code'));
+export const getTelegramChats = () =>
+  data(request.get('/merchant/telegram/chats'));
+export const toggleTelegramChat = (id) =>
+  data(request.post(`/merchant/telegram/chats/${id}/toggle`));
+export const deleteTelegramChat = (id) =>
+  data(request.delete(`/merchant/telegram/chats/${id}`));
+export const saveTelegramDaily = (body) =>
+  data(request.put('/merchant/telegram/daily', body));
+export const testTelegram = () =>
+  data(request.post('/merchant/telegram/test'));
 
 // ---- Webhook ----
 export const getWebhooks = () => data(request.get('/merchant/webhook/list'));

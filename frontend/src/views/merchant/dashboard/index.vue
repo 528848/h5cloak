@@ -35,12 +35,17 @@
             style="width: 260px"
           />
         </el-space>
-        <span class="muted-text"
-          >最后更新 {{ data.updatedAt || '-' }}
-          <el-button link type="primary" :icon="Refresh" @click="load"
+        <span class="muted-text">
+          最后更新 {{ data.updatedAt || '-' }}
+          <el-button
+            link
+            type="primary"
+            :icon="Refresh"
+            :loading="loading"
+            @click="load"
             >刷新</el-button
-          ></span
-        >
+          >
+        </span>
       </div>
     </ele-card>
 
@@ -98,7 +103,7 @@
 
     <el-row :gutter="16" class="page-section">
       <el-col :lg="8" :xs="24">
-        <section-card title="分销码 TOP" subtitle="放行次数" class="chart-card">
+        <section-card title="归因码 TOP" subtitle="放行次数" class="chart-card">
           <v-chart
             v-if="data.codes?.length"
             ref="codeRef"
@@ -193,7 +198,7 @@
             <el-link
               type="primary"
               underline="never"
-              @click="go('/merchant/alert')"
+              @click="go('/merchant/alert/list')"
               >告警 {{ data.alerts?.open || 0 }}</el-link
             >
           </template>
@@ -348,21 +353,21 @@
         key: 'visits',
         label: '访问',
         value: s.visits,
-        desc: `放行率 ${pct(s.realTotal, base)}%`
+        desc: `按页面和 IP · 放行率 ${pct(s.realTotal, base)}%`
       },
       {
         key: 'real',
         label: '放行',
         value: s.realTotal,
         type: 'success',
-        desc: `首访 ${fmtNum(s.firstReal)} · 回访 ${fmtNum(s.returnReal)} · 交接 ${fmtNum(s.handoffReal)}`
+        desc: `同一页面、同一 IP 计 1 次 · 首访 ${fmtNum(s.firstReal)} · 回访 ${fmtNum(s.returnReal)} · 交接 ${fmtNum(s.handoffReal)}`
       },
       {
         key: 'review',
         label: '审核返回',
         value: s.review,
         type: 'warning',
-        desc: `占比 ${pct(s.review, base)}%`
+        desc: `同一页面、同一 IP 计 1 次 · 占比 ${pct(s.review, base)}%`
       },
       {
         key: 'block',
@@ -470,8 +475,9 @@
 
   const load = () => {
     if (rangeKey.value === 'custom' && customRange.value?.length !== 2) return;
+    if (loading.value) return;
     loading.value = true;
-    getDashboard(params.value)
+    getDashboard({ ...params.value, _t: Date.now() })
       .then((d) => (data.value = d || {}))
       .catch((e) => EleMessage.error({ message: e.message, plain: true }))
       .finally(() => (loading.value = false));

@@ -11,12 +11,17 @@
             >{{ r.label }}</el-radio-button
           >
         </el-radio-group>
-        <span class="muted-text"
-          >最后更新 {{ data.updatedAt || '-' }}
-          <el-button link type="primary" :icon="Refresh" @click="load"
+        <span class="muted-text">
+          最后更新 {{ data.updatedAt || '-' }}
+          <el-button
+            link
+            type="primary"
+            :icon="Refresh"
+            :loading="loading"
+            @click="refresh"
             >刷新</el-button
-          ></span
-        >
+          >
+        </span>
       </div>
     </ele-card>
 
@@ -30,6 +35,7 @@
         >
           <v-chart
             v-if="data.trend?.length"
+            :key="data.updatedAt"
             ref="trendRef"
             :option="
               lineOption(data.trend, [
@@ -106,7 +112,7 @@
             ><em>{{ c.domains_bound }} 已绑定 / {{ c.domains }}</em></div
           >
           <div class="side-kv"
-            ><span>分销码</span><em>{{ fmtNum(c.codes) }}</em></div
+            ><span>归因码</span><em>{{ fmtNum(c.codes) }}</em></div
           >
           <div class="side-kv"
             ><span>域名异常</span
@@ -132,6 +138,7 @@
         <section-card title="接入方式" subtitle="按入口">
           <v-chart
             v-if="data.entries?.length"
+            :key="data.updatedAt"
             ref="entryRef"
             :option="donutOption(data.entries, entryLabel)"
             autoresize
@@ -221,6 +228,7 @@
 
   const rangeKey = ref('today');
   const data = ref({});
+  const loading = ref(false);
   const trendRef = ref(null);
   const entryRef = ref(null);
   const alertTable = ref(null);
@@ -240,21 +248,21 @@
         key: 'visits',
         label: '访问',
         value: s.visits,
-        desc: `放行率 ${pct(s.realTotal, base)}%`
+        desc: `按页面和 IP · 放行率 ${pct(s.realTotal, base)}%`
       },
       {
         key: 'real',
         label: '放行',
         value: s.realTotal,
         type: 'success',
-        desc: `首访 ${fmtNum(s.firstReal)} · 回访 ${fmtNum(s.returnReal)}`
+        desc: `同一页面、同一 IP 计 1 次 · 首访 ${fmtNum(s.firstReal)} · 回访 ${fmtNum(s.returnReal)}`
       },
       {
         key: 'review',
         label: '审核返回',
         value: s.review,
         type: 'warning',
-        desc: `占比 ${pct(s.review, base)}%`
+        desc: `同一页面、同一 IP 计 1 次 · 占比 ${pct(s.review, base)}%`
       },
       { key: 'block', label: '拦截', value: s.block, type: 'danger' },
       {
@@ -293,19 +301,27 @@
   const alertDatasource = ({ page, limit }) =>
     pageAlerts({ status: 'open', pageNum: page, pageSize: limit });
 
-  const load = () =>
-    getDashboard({ range: rangeKey.value })
+  const refresh = () => {
+    if (loading.value) {
+      return;
+    }
+    loading.value = true;
+    getDashboard({ range: rangeKey.value, _t: Date.now() })
       .then((d) => {
         data.value = d || {};
-        alertTable.value?.reload?.();
+        alertTable.value?.reload?.({ page: 1 });
       })
-      .catch((e) => EleMessage.error({ message: e.message, plain: true }));
+      .catch((e) => EleMessage.error({ message: e.message, plain: true }))
+      .finally(() => {
+        loading.value = false;
+      });
+  };
   const openAlerts = () =>
     alertTable.value?.$el?.scrollIntoView?.({ behavior: 'smooth' });
   void fmtAmount;
 
-  watch(rangeKey, load);
-  onMounted(load);
+  watch(rangeKey, refresh);
+  onMounted(refresh);
 </script>
 
 <style scoped>

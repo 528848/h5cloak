@@ -10,7 +10,10 @@ import (
 	"cloak/internal/transport/http/response"
 )
 
-type authHandler struct{ svc *authsvc.Service }
+type authHandler struct {
+	svc      *authsvc.Service
+	captchas *captchaStore
+}
 
 type loginReq struct {
 	Username   string `json:"username" binding:"required"`
@@ -31,6 +34,10 @@ func (h *authHandler) login(c *gin.Context) {
 	if req.Portal == "" {
 		req.Portal = "admin"
 	}
+	if msg := h.captchas.Verify(c.Request.Context(), req.UUID, req.Code); msg != "" {
+		response.Error(c, http.StatusBadRequest, msg)
+		return
+	}
 	token, err := h.svc.Login(c.Request.Context(), authsvc.LoginInput{
 		Username: req.Username, Password: req.Password, Portal: req.Portal,
 		IP: c.ClientIP(), UA: c.Request.UserAgent(),
@@ -42,9 +49,17 @@ func (h *authHandler) login(c *gin.Context) {
 	response.Success(c, gin.H{"token": token}, "登录成功")
 }
 
-// GET /captchaImage  前端启动时调用；本期不启用图形验证码。
+// GET /captchaImage  登录图形验证码。总后台与商户端共用。
 func (h *authHandler) captcha(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "操作成功", "captchaEnabled": false})
+	uuid, img, err := h.captchas.Issue(c.Request.Context())
+	if err != nil {
+		response.Fail(c, "验证码生成失败")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200, "msg": "操作成功",
+		"captchaEnabled": true, "uuid": uuid, "img": img,
+	})
 }
 
 // POST /logout

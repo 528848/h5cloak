@@ -34,7 +34,11 @@ func (p *Proxy) forwardWebSocket(w http.ResponseWriter, r *http.Request, req Req
 	var backend net.Conn
 	var err error
 	if target.Scheme == "https" || target.Scheme == "wss" {
-		backend, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: target.Hostname(), InsecureSkipVerify: p.cfg.InsecureOrigins, MinVersion: tls.VersionTLS12}) //nolint:gosec
+		name := target.Hostname()
+		if sni := tlsServerName(name, origin.HostHeader); sni != "" {
+			name = sni
+		}
+		backend, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{ServerName: name, InsecureSkipVerify: p.cfg.InsecureOrigins, MinVersion: tls.VersionTLS12}) //nolint:gosec
 	} else {
 		backend, err = dialer.Dial("tcp", addr)
 	}
@@ -62,7 +66,7 @@ func (p *Proxy) forwardWebSocket(w http.ResponseWriter, r *http.Request, req Req
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		// 源站拒绝升级：按普通响应转发
 		defer resp.Body.Close()
-		return p.writeResponse(w, r, req, resp, target, origin, kind, false)
+		return p.writeResponse(w, r, req, resp, target, origin, kind, false, "")
 	}
 
 	client, clientBuf, err := hj.Hijack()

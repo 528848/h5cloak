@@ -151,7 +151,7 @@
               <span v-else class="muted-text">-</span>
             </div>
             <div class="side-kv">
-              <span>参数 / 分销码 / 路径规则</span>
+              <span>参数 / 归因码 / 路径规则</span>
               <strong>
                 {{ status.local.params }} / {{ status.local.codes }} /
                 {{ status.local.pathRules }}
@@ -246,7 +246,7 @@
                 }}</span>
                 <span v-else class="muted-text">-</span>
               </el-descriptions-item>
-              <el-descriptions-item label="分销码">
+              <el-descriptions-item label="归因码">
                 <template v-if="result.decision.code">
                   <span class="mono">{{ result.decision.code.code }}</span>
                   <span v-if="result.decision.code.name" class="muted-text">

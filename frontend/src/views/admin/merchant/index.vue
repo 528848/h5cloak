@@ -117,13 +117,6 @@
                   >
                     停用
                   </el-dropdown-item>
-                  <el-dropdown-item
-                    v-if="row.status !== 'frozen'"
-                    v-permission="'merchant:account:status'"
-                    command="frozen"
-                  >
-                    冻结
-                  </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>

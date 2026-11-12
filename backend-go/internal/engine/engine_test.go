@@ -69,7 +69,7 @@ func TestPathRules(t *testing.T) {
 	e := New(nil)
 	s := testSite()
 	cases := map[string]string{
-		"https://shop.example.com/assets/app.CSS": ContentBypass,
+		"https://shop.example.com/assets/app.CSS": ContentReview,
 		"https://shop.example.com/privacy/policy": ContentReal,
 		"https://shop.example.com/admin/login":    ContentBlock,
 		"https://shop.example.com/review-only":    ContentReview,
@@ -84,9 +84,16 @@ func TestPathRules(t *testing.T) {
 	if d := e.Decide(ctx, req(s, "https://shop.example.com/review-only/sub")); d.PathRule != nil {
 		t.Fatalf("exact rule must not match sub path: %v", d.PathRule)
 	}
-	// 顺序：同时命中 bypass(.css) 与 block(/admin) 时取 sort 小的
-	if d := e.Decide(ctx, req(s, "https://shop.example.com/admin/x.css")); d.Content != ContentBypass {
-		t.Fatalf("sort order: %+v", d)
+	// 平台静态后缀优先于站点 block；没有归因令牌时内容跟随审核
+	if d := e.Decide(ctx, req(s, "https://shop.example.com/admin/x.css")); d.Content != ContentReview || d.PathRule == nil || d.PathRule.Pattern != ".css" {
+		t.Fatalf("static rule should win and follow review: %+v", d)
+	}
+	// 已归因访客的静态资源仍放行，走真实站点自己的文件
+	first := e.Decide(ctx, req(s, "https://shop.example.com/lp?ref=ALICE"))
+	rc := req(s, "https://shop.example.com/assets/app.css")
+	rc.CookieToken = first.VisitorToken
+	if d := e.Decide(ctx, rc); d.Content != ContentBypass {
+		t.Fatalf("attributed static should bypass: %+v", d)
 	}
 	// /privacy-ish 路径不被 /privacy 前缀以外的规则截获；/products 无规则 → 走判定
 	d := e.Decide(ctx, req(s, "https://shop.example.com/products"))

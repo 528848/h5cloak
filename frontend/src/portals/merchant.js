@@ -1,6 +1,6 @@
 export const APP_PORTAL = 'merchant';
 
-export const APP_NAME = '斗篷系统商户端';
+export const APP_NAME = 'H5Cloak 商户端';
 
 export const PORTAL_PREFIX = '/merchant';
 

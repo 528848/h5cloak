@@ -37,7 +37,7 @@
     <template v-else-if="siteId">
       <section-card
         title="校验规则"
-        subtitle="决定多个参数如何组合、分销码与点击参数如何校验"
+        subtitle="决定多个参数如何组合、归因码与点击参数如何校验"
         class="page-section"
       >
         <template #extra>
@@ -73,7 +73,7 @@
               </el-form-item>
             </el-col>
             <el-col :md="12" :xs="24">
-              <el-form-item label="校验分销码登记">
+              <el-form-item label="校验归因码登记">
                 <el-switch v-model="rule.validateCodes" />
                 <span class="field-hint">关闭后任何码值都视为有效</span>
               </el-form-item>

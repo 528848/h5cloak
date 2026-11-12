@@ -1,0 +1,23 @@
+{
+    "name": "h5cloak/cloak-sdk-php",
+    "description": "斗篷（Cloak）服务端 SDK：判定 + 本机深度代理，框架无关。",
+    "type": "library",
+    "license": "MIT",
+    "require": {
+        "php": ">=7.4",
+        "ext-json": "*"
+    },
+    "suggest": {
+        "ext-curl": "默认 HTTP 传输；未启用时需注入自定义 HttpTransport（如 WordPress 的 wp_remote_*）。"
+    },
+    "autoload": {
+        "psr-4": {
+            "Cloak\\Sdk\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Cloak\\Sdk\\Tests\\": "tests/"
+        }
+    }
+}

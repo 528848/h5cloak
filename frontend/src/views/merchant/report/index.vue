@@ -40,7 +40,6 @@
             <el-button :icon="Checked" @click="doReconcile">对账</el-button>
           </el-tooltip>
           <el-button
-            v-if="tab !== 'export'"
             v-permission="'report:export'"
             type="primary"
             plain
@@ -92,7 +91,7 @@
         }}</template>
       </ele-pro-table>
 
-      <!-- 分销码 / 活动码 -->
+      <!-- 归因码（分销码 / 活动码） -->
       <ele-pro-table
         v-else-if="tab === 'code' || tab === 'campaign'"
         :key="tab"
@@ -165,58 +164,15 @@
         </template>
         <template #occurredAt="{ row }">{{ fmtTime(row.occurredAt) }}</template>
       </ele-pro-table>
-
-      <!-- 导出 -->
-      <ele-pro-table
-        v-else
-        ref="exportTable"
-        row-key="id"
-        :columns="exportColumns"
-        :datasource="exportDatasource"
-        :cache-key="'merchantReportExport'"
-        :page-size="20"
-      >
-        <template #toolbar>
-          <el-button link type="primary" :icon="Refresh" @click="reloadExports"
-            >刷新</el-button
-          >
-        </template>
-        <template #params="{ row }">
-          <span class="muted-text"
-            >{{ rangeLabel(row.params) }}
-            {{
-              row.params?.siteId ? `· 站点 ${row.params.siteId}` : '· 全部站点'
-            }}</span
-          >
-        </template>
-        <template #status="{ row }">
-          <el-tag :type="exportType(row.status)" size="small" effect="light">{{
-            exportLabel(row.status)
-          }}</el-tag>
-          <span v-if="row.error" class="error-text" style="margin-left: 6px">{{
-            row.error
-          }}</span>
-        </template>
-        <template #action="{ row }">
-          <el-button
-            v-if="row.status === 'done' && row.downloadToken"
-            link
-            type="primary"
-            :icon="Download"
-            @click="download(row)"
-            >下载</el-button
-          >
-          <span v-else class="muted-text">-</span>
-        </template>
-      </ele-pro-table>
     </ele-card>
   </ele-page>
 </template>
 
 <script setup>
   import { ref, computed, watch, onMounted, nextTick } from 'vue';
-  import { useRoute } from 'vue-router';
-  import { Download, Refresh, Checked } from '@element-plus/icons-vue';
+  import { useRoute, useRouter } from 'vue-router';
+  import { Download, Checked } from '@element-plus/icons-vue';
+  import { ElNotification } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';
   import { useCurrentSite } from '@/utils/use-site';
   import {
@@ -225,27 +181,25 @@
     pagePathReport,
     pageConversionReport,
     getReconcile,
-    createExport,
-    pageExports,
-    exportDownloadUrl
+    createExport
   } from '@/api/merchant/ops';
   import { pct, fmtAmount } from '@/utils/charts';
 
   defineOptions({ name: 'MerchantReport' });
 
   const route = useRoute();
+  const router = useRouter();
   const { sites, siteId: currentSite, load: loadSites } = useCurrentSite();
   const siteId = ref(null);
   const rangeKey = ref('7d');
   const customRange = ref([]);
-  const tab = ref(route.query.tab === 'export' ? 'export' : 'channel');
+  const tab = ref('channel');
   const loading = ref(false);
   const reconcile = ref(null);
   const channelRows = ref([]);
   const codeTable = ref(null);
   const pathTable = ref(null);
   const convTable = ref(null);
-  const exportTable = ref(null);
 
   const ranges = [
     { value: 'today', label: '今日' },
@@ -256,20 +210,18 @@
   ];
   const tabs = [
     { name: 'channel', label: '渠道' },
-    { name: 'code', label: '分销码' },
+    { name: 'code', label: '归因码' },
     { name: 'campaign', label: '活动码' },
     { name: 'path', label: '路径' },
-    { name: 'conversion', label: '转化' },
-    { name: 'export', label: '导出记录' }
+    { name: 'conversion', label: '转化' }
   ];
   const tipOf = (t) =>
     ({
       channel: '按归因渠道汇总放行与转化，实时统计。',
-      code: '按分销码汇总放行、回访、交接与转化，每分钟更新。',
+      code: '按归因码汇总放行、回访、交接与转化，每分钟更新。',
       campaign: '按活动码汇总，每分钟更新。',
-      path: '哪些路径被无归因访问最多，用于发现被扫描或链接漏参的页面，每分钟更新。',
-      conversion: '服务端回传的转化明细及其归因。',
-      export: '异步导出的 CSV 文件，生成后 24 小时内可下载。'
+      path: '按网站页面路径汇总。页面里的图片、脚本、样式和其他文件请求不计入。',
+      conversion: '服务端回传的转化明细及其归因。'
     })[t];
 
   const rangeParams = computed(() => {
@@ -364,22 +316,6 @@
       showOverflowTooltip: true
     }
   ];
-  const exportColumns = [
-    { prop: 'id', label: 'ID', width: 70 },
-    { prop: 'kindName', label: '类型', width: 120 },
-    { prop: 'params', label: '范围', slot: 'params', minWidth: 200 },
-    { prop: 'status', label: '状态', slot: 'status', minWidth: 160 },
-    { prop: 'rowCount', label: '行数', width: 90, align: 'right' },
-    { prop: 'createdAt', label: '创建', width: 170 },
-    { prop: 'expiresAt', label: '过期', width: 170 },
-    {
-      prop: 'action',
-      label: '操作',
-      slot: 'action',
-      width: 90,
-      align: 'center'
-    }
-  ];
 
   const loadChannel = () => {
     if (!ready.value) return;
@@ -400,8 +336,6 @@
   );
   const pathDatasource = ds(pagePathReport);
   const convDatasource = ds(pageConversionReport);
-  const exportDatasource = ({ page, limit }) =>
-    pageExports({ pageNum: page, pageSize: limit });
 
   const reloadAll = () => {
     if (!ready.value) return;
@@ -412,7 +346,6 @@
       convTable.value?.reload?.({ page: 1 });
     });
   };
-  const reloadExports = () => exportTable.value?.reload?.();
 
   const doReconcile = () =>
     getReconcile(rangeParams.value)
@@ -437,40 +370,27 @@
       to: p.to
     })
       .then(() => {
-        EleMessage.success({
-          message: '已加入导出队列，稍后在「导出记录」下载',
-          plain: true
+        ElNotification({
+          title: '已加入下载中心',
+          message: '文件生成后可在下载中心获取',
+          type: 'success',
+          duration: 4000,
+          onClick: () => router.push('/merchant/download')
         });
-        tab.value = 'export';
       })
       .catch((e) => EleMessage.error({ message: e.message, plain: true }));
   };
-  const download = (row) =>
-    window.open(exportDownloadUrl(row.downloadToken), '_blank');
-
-  const exportLabel = (s) =>
-    ({ pending: '排队中', running: '生成中', done: '已完成', failed: '失败' })[
-      s
-    ] || s;
-  const exportType = (s) =>
-    ({
-      pending: 'info',
-      running: 'primary',
-      done: 'success',
-      failed: 'danger'
-    })[s] || 'info';
-  const rangeLabel = (p) =>
-    p?.rangeKey === 'custom'
-      ? `${p.from} ~ ${p.to}`
-      : ranges.find((r) => r.value === p?.rangeKey)?.label || p?.rangeKey || '';
   const fmtTime = (v) => (v ? String(v).replace('T', ' ').slice(0, 19) : '-');
 
   watch(rangeParams, reloadAll);
   watch(tab, (t) => {
     if (t === 'channel') loadChannel();
-    if (t === 'export') nextTick(reloadExports);
   });
   onMounted(() => {
+    if (route.query.tab === 'export') {
+      router.replace('/merchant/download');
+      return;
+    }
     loadSites().then(() => {
       siteId.value = currentSite.value || null;
       reloadAll();

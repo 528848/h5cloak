@@ -125,7 +125,7 @@ func (p *Publisher) PublishAsync(siteID uint64) {
 
 // PublishMerchantAsync 商户状态变化时重建其全部站点。
 func (p *Publisher) PublishMerchantAsync(ctx context.Context, merchantID uint64) {
-	rows, _, err := p.builder.sites.ListSites(ctx, merchantID, "", "", 1, 200)
+	rows, _, err := p.builder.sites.ListSites(ctx, merchantID, "", "", "", 1, 200)
 	if err != nil {
 		p.log.Warn("list sites for publish", zap.Error(err))
 		return
@@ -137,7 +137,7 @@ func (p *Publisher) PublishMerchantAsync(ctx context.Context, merchantID uint64)
 
 // PublishAll 重建全部站点（启动或内置字典变更时）。
 func (p *Publisher) PublishAll(ctx context.Context) (int, error) {
-	rows, _, err := p.builder.sites.ListSites(ctx, 0, "", "", 1, 200)
+	rows, _, err := p.builder.sites.ListSites(ctx, 0, "", "", "", 1, 200)
 	if err != nil {
 		return 0, err
 	}

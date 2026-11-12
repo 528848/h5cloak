@@ -123,7 +123,17 @@ func (r *IdentityRepo) FindMerchantAdmin(ctx context.Context, merchantID uint64)
 	return wrap(&u, err)
 }
 
-// ListByScope 角色列表。
+// ListForMerchant 内置商户角色，加上该商户自己创建的角色。
+func (r *IdentityRepo) ListForMerchant(ctx context.Context, merchantID uint64) ([]identity.Role, error) {
+	var roles []identity.Role
+	err := r.db.WithContext(ctx).
+		Where("scope = ? AND (merchant_id IS NULL OR merchant_id = ?)", identity.ScopeMerchant, merchantID).
+		Order("merchant_id IS NULL DESC, sort ASC, id ASC").
+		Find(&roles).Error
+	return roles, err
+}
+
+// ListByScope 某范围下启用的角色。
 func (r *IdentityRepo) ListByScope(ctx context.Context, scope string) ([]identity.Role, error) {
 	var roles []identity.Role
 	err := r.db.WithContext(ctx).Where("scope = ? AND status = ?", scope, identity.StatusEnabled).Order("sort ASC").Find(&roles).Error

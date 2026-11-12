@@ -35,6 +35,8 @@ gateway:
     max_idle_per_host: 64
     review_noindex: true
     insecure_origins: false    # 本地源站用自签证书时改 true
+    review_cache_ttl: 5m       # 审核页改写后进程内缓存，0 关闭
+    review_cache_mb: 128       # 审核页缓存总上限 MB
   tls:
     # off | selfsigned | acme
     mode: selfsigned

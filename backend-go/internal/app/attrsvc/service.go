@@ -391,19 +391,24 @@ type CodeInput struct {
 }
 
 type CodeListInput struct {
-	SiteID   uint64
-	Keyword  string
-	CodeType string
-	Status   string
-	Channel  string
-	Page     int
-	Size     int
+	SiteID    uint64
+	Keyword   string
+	CodeType  string
+	Status    string
+	RawStatus string
+	Channel   string
+	Begin     string
+	End       string
+	Page      int
+	Size      int
 }
 
 func (s *Service) ListCodes(ctx context.Context, merchantID uint64, in CodeListInput) ([]map[string]any, int64, error) {
 	rows, total, err := s.repo.ListCodes(ctx, mysql.CodeFilter{
 		MerchantID: merchantID, SiteID: in.SiteID, Keyword: in.Keyword, CodeType: in.CodeType,
-		Status: in.Status, Channel: in.Channel, Page: in.Page, Size: in.Size,
+		Status: in.Status, RawStatus: in.RawStatus, Channel: in.Channel,
+		CreatedFrom: parseBound(in.Begin), CreatedTo: parseBound(in.End),
+		Page: in.Page, Size: in.Size,
 	})
 	if err != nil {
 		return nil, 0, err
@@ -1010,6 +1015,14 @@ func parseStrings(raw []byte) []string {
 		out = []string{}
 	}
 	return out
+}
+
+func parseBound(s string) *time.Time {
+	t, err := parseTime(s)
+	if err != nil {
+		return nil
+	}
+	return t
 }
 
 func parseTime(s string) (*time.Time, error) {

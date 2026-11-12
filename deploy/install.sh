@@ -119,6 +119,7 @@ cat > $PREFIX/env/gateway.env <<EOF
 CLOAK_GATEWAY_ENTRY_HOST="${ENTRY_HOST}"
 CLOAK_GATEWAY_TLS_EMAIL="${ACME_EMAIL}"
 CLOAK_GATEWAY_TLS_STAGING="${TLS_STAGING}"
+CLOAK_GATEWAY_TLS_ADDR="127.0.0.1:8444"
 EOF
 cat > $PREFIX/env/worker.env <<EOF
 CLOAK_NOTIFY_CONSOLE_URL="http://${MERCHANT_HOST}"
@@ -148,16 +149,64 @@ FLUSH PRIVILEGES;
 SQL
 sudo -u $USER_NAME bash -c "set -a; . $PREFIX/env/common.env; . $PREFIX/env/admin.env; set +a; export CLOAK_MIGRATIONS_DIR=$PREFIX/migrations; cd $PREFIX && ./bin/migrate up && ./bin/migrate seed"
 
-# ---------- 6. Nginx ----------
+# ---------- 6. Nginx 与控制台证书 ----------
 log "Nginx"
-sed -e "s/ADMIN_HOST/${ADMIN_HOST}/g" -e "s/MERCHANT_HOST/${MERCHANT_HOST}/g" \
-    -e "s/ADMIN_ALIAS/${ADMIN_ALIAS}/g" -e "s/MERCHANT_ALIAS/${MERCHANT_ALIAS}/g" \
-    "$HERE/nginx/cloak.conf" > /etc/nginx/sites-available/cloak
+apt-get install -y -qq libnginx-mod-stream certbot >/dev/null
+mkdir -p /var/www/certbot /etc/letsencrypt/renewal-hooks/deploy
+# 公网 443 交给 stream。已有配置里的 :443 改到本机 8444，再重启网关把端口让出来。
+if [[ -f $PREFIX/configs/gateway.yaml ]]; then
+  sed -i 's/addr: :443/addr: 127.0.0.1:8444/' "$PREFIX/configs/gateway.yaml"
+fi
+if systemctl is-active --quiet cloak-gateway; then
+  systemctl restart cloak-gateway
+fi
+
+render_nginx() {
+  local src=$1
+  sed -e "s/ADMIN_HOST/${ADMIN_HOST}/g" -e "s/MERCHANT_HOST/${MERCHANT_HOST}/g" \
+      -e "s/ADMIN_ALIAS/${ADMIN_ALIAS}/g" -e "s/MERCHANT_ALIAS/${MERCHANT_ALIAS}/g" \
+      "$src"
+}
 install -m 644 "$HERE/nginx/cloak-console.conf" /etc/nginx/snippets/cloak-console.conf
+render_nginx "$HERE/nginx/cloak-stream.conf" > /etc/nginx/cloak-stream.conf
+if ! grep -q 'cloak-stream.conf' /etc/nginx/nginx.conf; then
+  printf '\nstream {\n    include /etc/nginx/cloak-stream.conf;\n}\n' >> /etc/nginx/nginx.conf
+fi
 ln -sf /etc/nginx/sites-available/cloak /etc/nginx/sites-enabled/cloak
 rm -f /etc/nginx/sites-enabled/default
+
+console_cert() { [[ -s /etc/letsencrypt/live/$1/fullchain.pem ]]; }
+issue_cert() {
+  console_cert "$1" && return 0
+  certbot certonly --webroot -w /var/www/certbot -d "$1" \
+    --non-interactive --agree-tos -m "$ACME_EMAIL" --keep-until-expiring
+}
+if console_cert "$ADMIN_HOST" && console_cert "$MERCHANT_HOST"; then
+  render_nginx "$HERE/nginx/cloak.conf" > /etc/nginx/sites-available/cloak
+else
+  render_nginx "$HERE/nginx/cloak-bootstrap.conf" > /etc/nginx/sites-available/cloak
+fi
 nginx -t
 systemctl reload nginx
+issue_cert "$ADMIN_HOST"
+issue_cert "$MERCHANT_HOST"
+render_nginx "$HERE/nginx/cloak.conf" > /etc/nginx/sites-available/cloak
+# 没填别名时删掉只含主域名的重复 server，避免 server_name 冲突
+if [[ -z $ADMIN_ALIAS || $ADMIN_ALIAS == "$ADMIN_HOST" ]]; then
+  sed -i '/# ALIAS_ADMIN$/,/# ALIAS_ADMIN_END$/d' /etc/nginx/sites-available/cloak
+fi
+if [[ -z $MERCHANT_ALIAS || $MERCHANT_ALIAS == "$MERCHANT_HOST" ]]; then
+  sed -i '/# ALIAS_MERCHANT$/,/# ALIAS_MERCHANT_END$/d' /etc/nginx/sites-available/cloak
+fi
+nginx -t
+systemctl reload nginx
+cat > /etc/letsencrypt/renewal-hooks/deploy/cloak-reload.sh <<'EOF'
+#!/bin/sh
+systemctl reload nginx
+EOF
+chmod 755 /etc/letsencrypt/renewal-hooks/deploy/cloak-reload.sh
+sed -i "s#http://${ADMIN_HOST}#https://${ADMIN_HOST}#g; s#http://${MERCHANT_HOST}#https://${MERCHANT_HOST}#g" \
+  "$PREFIX/env/admin.env" "$PREFIX/env/worker.env"
 
 # ---------- 7. systemd ----------
 log "systemd"
@@ -187,9 +236,9 @@ echo "admin=$a gateway=$g worker=$w"
 cat <<EOF
 
 安装完成。
-  总后台    http://${ADMIN_HOST}      （admin / admin123，首次登录后请改密码）
-  商户端    http://${MERCHANT_HOST}   （merchant / merchant123）
-  托管入口  ${ENTRY_HOST}             （商户托管域名 CNAME 到它；本机 80 由 Nginx 转给网关，443 由网关直接监听）
+  总后台    https://${ADMIN_HOST}      （admin / admin123，首次登录后请改密码）
+  商户端    https://${MERCHANT_HOST}   （merchant / merchant123）
+  托管入口  ${ENTRY_HOST}             （商户托管域名 CNAME 到它；443 由 Nginx 按 SNI 转给网关 8444）
   配置      $PREFIX/configs/*.yaml，密钥与地址在 $PREFIX/env/*.env
   日志      journalctl -u cloak-gateway -f
   备份      每日 03:30 → $PREFIX/backups（cloak-backup.timer）

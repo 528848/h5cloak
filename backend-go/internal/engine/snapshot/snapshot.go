@@ -71,11 +71,16 @@ type Origin struct {
 }
 
 type Review struct {
-	Source       string            `json:"source"` // origin / template / static
-	TemplateHTML string            `json:"templateHtml,omitempty"`
-	TemplateVars map[string]string `json:"templateVars,omitempty"`
-	StaticDir    string            `json:"staticDir,omitempty"`
-	StaticEntry  string            `json:"staticEntry,omitempty"`
+	Source            string            `json:"source"` // origin / template / static
+	TemplateHTML      string            `json:"templateHtml,omitempty"`
+	TemplateVars      map[string]string `json:"templateVars,omitempty"`
+	TemplateKind      string            `json:"templateKind,omitempty"` // html / url / static；空表示旧的 HTML 模板
+	TemplateURL       string            `json:"templateUrl,omitempty"`
+	TemplateHost      string            `json:"templateHost,omitempty"`
+	TemplateTimeoutMs int               `json:"templateTimeoutMs,omitempty"`
+	StaticDir         string            `json:"staticDir,omitempty"`
+	StaticEntry       string            `json:"staticEntry,omitempty"`
+	StaticSpaFallback bool              `json:"staticSpaFallback,omitempty"`
 }
 
 type PathRule struct {

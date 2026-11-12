@@ -1,4 +1,5 @@
-# 判定网关。HTTP 监听在本机 8090，由 Nginx 在 80 端口按 Host 转发；HTTPS 由网关自己在 443 监听并按需签发证书。
+# 判定网关。HTTP 监听在本机 8090，由 Nginx 在 80 端口按 Host 转发。
+# HTTPS 由网关在 127.0.0.1:8444 监听；公网 443 由 Nginx stream 按 SNI 分流（控制台证书在 8443）。
 # 覆盖项：CLOAK_MYSQL_DSN  CLOAK_REDIS_ADDR  CLOAK_REDIS_PASSWORD  CLOAK_AUTH_JWT_SECRET  CLOAK_AUTH_SECRET_KEY
 #        CLOAK_GATEWAY_TLS_EMAIL  CLOAK_GATEWAY_TLS_STAGING  CLOAK_GATEWAY_TLS_MODE
 app:
@@ -39,9 +40,11 @@ gateway:
     max_idle_per_host: 64
     review_noindex: true
     insecure_origins: false
+    review_cache_ttl: 5m       # 审核页改写后进程内缓存，0 关闭
+    review_cache_mb: 128       # 审核页缓存总上限 MB
   tls:
     mode: acme
-    addr: :443
+    addr: 127.0.0.1:8444
     cert_dir: /opt/cloak/data/certs
     email: ops@example.com
     staging: true

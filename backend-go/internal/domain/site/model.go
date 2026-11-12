@@ -119,15 +119,39 @@ type ReviewContent struct {
 func (ReviewContent) TableName() string { return "site_review_contents" }
 
 type Template struct {
-	ID          uint64 `gorm:"primaryKey"`
-	Code        string
-	Name        string
-	Description *string
-	HTML        string `gorm:"column:html"`
-	CreatedAt   time.Time
+	ID            uint64 `gorm:"primaryKey"`
+	Code          string
+	Name          string
+	Description   *string
+	Kind          string
+	Status        string
+	HTML          string `gorm:"column:html"`
+	URL           string `gorm:"column:url"`
+	HostHeader    string
+	TimeoutMs     int
+	Entry         string
+	SpaFallback   bool
+	ActiveVersion int
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 func (Template) TableName() string { return "review_templates" }
+
+// TemplateFile 平台静态模板的一个解压版本。Dir 相对上传目录。
+type TemplateFile struct {
+	ID         uint64 `gorm:"primaryKey"`
+	TemplateID uint64
+	Version    int
+	Dir        string `gorm:"column:dir"`
+	Entry      string
+	Bytes      int64
+	FileCount  int
+	Status     string
+	CreatedAt  time.Time
+}
+
+func (TemplateFile) TableName() string { return "review_template_files" }
 
 type StaticPackage struct {
 	ID        uint64 `gorm:"primaryKey"`
@@ -208,18 +232,6 @@ func BuiltinPathRules() []PathRule {
 		pattern, match, action, remark string
 	}
 	items := []item{
-		{".css", MatchSuffix, PathBypass, "静态资源"},
-		{".js", MatchSuffix, PathBypass, "静态资源"},
-		{".png", MatchSuffix, PathBypass, "静态资源"},
-		{".jpg", MatchSuffix, PathBypass, "静态资源"},
-		{".jpeg", MatchSuffix, PathBypass, "静态资源"},
-		{".gif", MatchSuffix, PathBypass, "静态资源"},
-		{".webp", MatchSuffix, PathBypass, "静态资源"},
-		{".svg", MatchSuffix, PathBypass, "静态资源"},
-		{".ico", MatchSuffix, PathBypass, "静态资源"},
-		{".woff", MatchSuffix, PathBypass, "静态资源"},
-		{".woff2", MatchSuffix, PathBypass, "静态资源"},
-		{".map", MatchSuffix, PathBypass, "静态资源"},
 		{"/wp-admin", MatchPrefix, PathBypass, "WordPress 后台"},
 		{"/wp-login.php", MatchExact, PathBypass, "WordPress 登录"},
 		{"/wp-json", MatchPrefix, PathBypass, "WordPress REST"},

@@ -6,13 +6,12 @@
       <ExpandOutlined v-else style="stroke-width: 4" />
     </el-icon>
   </layout-tool>
-  <!-- 语言切换 -->
-  <layout-tool :class="{ 'hidden-sm-and-down': tabBar && tabInHeader }">
-    <i18n-icon :icon-style="{ transform: 'scale(1.15)' }" />
-  </layout-tool>
-  <!-- 消息通知 -->
-  <layout-tool :class="{ 'hidden-sm-and-down': tabBar && tabInHeader }">
-    <header-notice />
+  <layout-tool v-if="isMerchant" @click="goDownload">
+    <el-badge :value="activeExports" :hidden="!activeExports" :max="99">
+      <el-icon style="transform: scale(1.05)">
+        <Download />
+      </el-icon>
+    </el-badge>
   </layout-tool>
   <!-- 用户信息 -->
   <layout-tool>
@@ -36,9 +35,13 @@
 </template>
 
 <script setup>
-  import { ref } from 'vue';
+  import { onMounted, onUnmounted, ref, watch } from 'vue';
+  import { useRoute, useRouter } from 'vue-router';
   import { useI18n } from 'vue-i18n';
   import { storeToRefs } from 'pinia';
+  import { Download } from '@element-plus/icons-vue';
+  import { APP_PORTAL } from '@portal';
+  import { getExportStats } from '@/api/merchant/ops';
   import {
     LayoutTool,
     requestFullscreen,
@@ -56,8 +59,6 @@
   import { doWithTransition } from '@/utils/common';
   import { useThemeStore } from '@/store/modules/theme';
   import HeaderUser from './header-user.vue';
-  import HeaderNotice from './header-notice.vue';
-  import I18nIcon from './i18n-icon.vue';
 
   const props = defineProps({
     /** 是否全屏状态 */
@@ -69,9 +70,39 @@
   const { openModal } = useModal();
 
   const themeStore = useThemeStore();
-  const { tabBar, tabInHeader, darkMode } = storeToRefs(themeStore);
+  const { darkMode } = storeToRefs(themeStore);
 
   const { t } = useI18n();
+  const route = useRoute();
+  const router = useRouter();
+  const isMerchant = APP_PORTAL === 'merchant';
+  const activeExports = ref(0);
+  let exportTimer;
+
+  const loadExportBadge = () => {
+    if (!isMerchant) return;
+    getExportStats()
+      .then((d) => {
+        activeExports.value = Number(d?.active || 0);
+      })
+      .catch(() => {});
+  };
+  const restartExportPoll = () => {
+    if (!isMerchant) return;
+    if (exportTimer) clearInterval(exportTimer);
+    const ms = route.path === '/merchant/download' ? 5000 : 30000;
+    exportTimer = setInterval(loadExportBadge, ms);
+  };
+  const goDownload = () => router.push('/merchant/download');
+
+  onMounted(() => {
+    loadExportBadge();
+    restartExportPoll();
+  });
+  watch(() => route.path, restartExportPoll);
+  onUnmounted(() => {
+    if (exportTimer) clearInterval(exportTimer);
+  });
 
   /** 全屏切换 */
   const toggleFullscreen = () => {

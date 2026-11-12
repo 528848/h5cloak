@@ -15,6 +15,7 @@ import (
 	"cloak/internal/config"
 	"cloak/internal/domain/ops"
 	"cloak/internal/pkg/notifier"
+	"cloak/internal/pkg/secretbox"
 	"cloak/internal/quota"
 )
 
@@ -30,6 +31,7 @@ type Service struct {
 	mailer     *notifier.Mailer
 	telegram   *notifier.Telegram
 	webhook    *notifier.Webhook
+	box        *secretbox.Box // 解密商户自有 Bot Token；nil 时只用平台 Bot
 	log        *zap.Logger
 	now        func() time.Time
 	attemptSrc func(context.Context) int
@@ -47,6 +49,7 @@ type Deps struct {
 	Quota     *quota.Checker
 	Notify    config.Notify
 	ExportDir string
+	Box       *secretbox.Box
 	Log       *zap.Logger
 }
 
@@ -57,7 +60,7 @@ func New(d Deps) *Service {
 	return &Service{
 		repo: d.Repo, logs: d.Logs, sites: d.Sites, merchants: d.Merchants, quota: d.Quota, cfg: d.Notify, exportDir: d.ExportDir,
 		mailer: notifier.NewMailer(d.Notify.SMTP), telegram: notifier.NewTelegram(d.Notify.Telegram), webhook: notifier.NewWebhook(d.Notify.Webhook),
-		log: d.Log, now: time.Now,
+		box: d.Box, log: d.Log, now: time.Now,
 	}
 }
 
@@ -102,20 +105,16 @@ func ParseRange(key, from, to string, now time.Time) Range {
 // Dashboard 商户工作台。
 func (s *Service) Dashboard(ctx context.Context, merchantID, siteID uint64, r Range) (map[string]any, error) {
 	now := s.now()
-	hours, err := s.repo.HourlyRange(ctx, merchantID, siteID, r.From, r.To)
+	raw, err := s.repo.LogCountSince(ctx, merchantID, siteID, r.From, r.To)
 	if err != nil {
 		return nil, err
 	}
-	sum := sumHourly(hours)
-	curHour := now.Truncate(time.Hour)
-	daily := r.To.Sub(r.From) > 48*time.Hour
-	var delta map[string]int64
-	// 当前小时用日志实时数替换已聚合的同一小时，避免重复累加
-	if r.To.After(curHour) {
-		if live, err := s.repo.LogCountSince(ctx, merchantID, siteID, maxTime(curHour, r.From), r.To); err == nil {
-			delta = applyLiveHour(sum, hours, curHour, live)
-		}
+	sum := verdictSummary(raw)
+	hours, err := s.repo.PageVerdictHourly(ctx, merchantID, siteID, r.From, r.To)
+	if err != nil {
+		return nil, err
 	}
+	daily := r.To.Sub(r.From) > 48*time.Hour
 	convN, convAmt, _ := s.repo.ConversionTotals(ctx, merchantID, siteID, r.From, r.To)
 
 	trend := make([]map[string]any, 0, len(hours))
@@ -128,9 +127,6 @@ func (s *Service) Dashboard(ctx context.Context, merchantID, siteID uint64, r Ra
 				"first": h.FirstReal, "return": h.ReturnReal, "handoff": h.HandoffReal, "block": h.Block,
 			})
 		}
-	}
-	if delta != nil {
-		trend = patchTrend(trend, curHour, daily, delta)
 	}
 	channels, _ := s.repo.Breakdown(ctx, merchantID, siteID, r.From, r.To, "channel", true, 10)
 	codes, _ := s.repo.Breakdown(ctx, merchantID, siteID, r.From, r.To, "code", true, 10)
@@ -171,6 +167,16 @@ func (s *Service) usage(ctx context.Context, merchantID uint64) uint64 {
 	}
 	n, _ := s.logs.Usage(ctx, merchantID, "decisions", s.now().Format("200601"))
 	return n
+}
+
+// verdictSummary 把按页面 + IP 去重后的计数放进看板字段。
+func verdictSummary(raw map[string]int64) map[string]int64 {
+	return map[string]int64{
+		"visits": raw["total"], "realTotal": raw["real"], "firstReal": raw["firstReal"], "returnReal": raw["returnReal"],
+		"handoffReal": raw["handoffReal"], "review": raw["review"], "block": raw["block"], "notFound": raw["notFound"],
+		"bypass": raw["bypass"], "validationFailed": raw["validationFailed"], "inApp": raw["inApp"], "degraded": raw["degraded"],
+		"originErrors": raw["originErrors"], "latencySum": raw["latencySum"],
+	}
 }
 
 func sumHourly(rows []ops.MetricsHourly) map[string]int64 {
@@ -393,19 +399,16 @@ func toU64(v any) uint64 {
 
 // PlatformDashboard 全平台。
 func (s *Service) PlatformDashboard(ctx context.Context, r Range, nodes []map[string]any) (map[string]any, error) {
-	hours, err := s.repo.HourlyRange(ctx, 0, 0, r.From, r.To)
+	raw, err := s.repo.LogCountSince(ctx, 0, 0, r.From, r.To)
 	if err != nil {
 		return nil, err
 	}
-	sum := sumHourly(hours)
-	curHour := s.now().Truncate(time.Hour)
-	daily := r.To.Sub(r.From) > 48*time.Hour
-	var delta map[string]int64
-	if r.To.After(curHour) {
-		if live, err := s.repo.LogCountSince(ctx, 0, 0, maxTime(curHour, r.From), r.To); err == nil {
-			delta = applyLiveHour(sum, hours, curHour, live)
-		}
+	sum := verdictSummary(raw)
+	hours, err := s.repo.PageVerdictHourly(ctx, 0, 0, r.From, r.To)
+	if err != nil {
+		return nil, err
 	}
+	daily := r.To.Sub(r.From) > 48*time.Hour
 	counts, _ := s.repo.PlatformCounts(ctx)
 	trend := bucketDaily(hours)
 	if !daily {
@@ -414,9 +417,6 @@ func (s *Service) PlatformDashboard(ctx context.Context, r Range, nodes []map[st
 			trend = append(trend, map[string]any{"t": h.Hour.Format("01-02 15:00"), "visits": h.Visits, "real": h.RealTotal, "review": h.Review, "block": h.Block,
 				"degraded": h.Degraded, "originErrors": h.OriginErrors})
 		}
-	}
-	if delta != nil {
-		trend = patchTrend(trend, curHour, daily, delta)
 	}
 	entries, _ := s.repo.Breakdown(ctx, 0, 0, r.From, r.To, "entry", false, 6)
 	alerts, _ := s.repo.AlertCounts(ctx, 0)

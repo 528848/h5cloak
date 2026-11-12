@@ -79,6 +79,9 @@
                 :value="tz"
               />
             </el-select>
+            <div class="muted-text" style="margin-top: 6px; font-size: 12px; line-height: 1.5">
+              商户的业务时区，用来划分报表里的「今天」。目前只保存在商户资料中，报表尚未按此时区计算日期。
+            </div>
           </el-form-item>
         </el-col>
       </el-row>
@@ -110,7 +113,7 @@
         </el-row>
         <el-alert type="info" show-icon :closable="false">
           额度与功能开关按平台默认值开通（判定 100 万/月、站点 5、域名
-          20、分销码 1000、子账号 10、日志 90
+          20、归因码 1000、子账号 10、日志 90
           天），开通后可在「额度与功能」中调整。
         </el-alert>
       </template>

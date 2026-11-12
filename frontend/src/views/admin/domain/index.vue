@@ -18,6 +18,28 @@
             </el-form-item>
           </el-col>
           <el-col :lg="6" :md="8" :sm="12" :xs="24">
+            <el-form-item label="所属商户">
+              <el-select
+                v-model="form.merchantId"
+                filterable
+                remote
+                clearable
+                reserve-keyword
+                placeholder="输入商户名称搜索"
+                :remote-method="searchMerchants"
+                :loading="merchantLoading"
+                class="ele-fluid"
+              >
+                <el-option
+                  v-for="item in merchantOptions"
+                  :key="item.merchantId"
+                  :label="item.merchantName"
+                  :value="item.merchantId"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :lg="6" :md="8" :sm="12" :xs="24">
             <el-form-item label="状态">
               <el-select
                 v-model="form.status"
@@ -93,6 +115,7 @@
   import { EleMessage } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
   import { pageAdminDomains, verifyAdminDomain } from '@/api/admin/domain';
+  import { pageMerchants } from '@/api/admin/merchant';
   import { getAdminSiteStats } from '@/api/admin/site';
   import {
     domainStatusOptions,
@@ -110,7 +133,33 @@
     domainPending: 0,
     domainAbnormal: 0
   });
-  const [form, resetFields] = useFormData({ keyword: '', status: '' });
+  const merchantOptions = ref([]);
+  const merchantLoading = ref(false);
+  let merchantTimer;
+  const [form, resetFields] = useFormData({
+    keyword: '',
+    status: '',
+    merchantId: undefined
+  });
+
+  const searchMerchants = (keyword) => {
+    clearTimeout(merchantTimer);
+    merchantTimer = setTimeout(async () => {
+      merchantLoading.value = true;
+      try {
+        const res = await pageMerchants({
+          keyword: (keyword || '').trim(),
+          pageNum: 1,
+          pageSize: 20
+        });
+        merchantOptions.value = res.rows || [];
+      } catch (e) {
+        merchantOptions.value = [];
+      } finally {
+        merchantLoading.value = false;
+      }
+    }, 300);
+  };
 
   const summaryItems = computed(() => [
     {

@@ -168,6 +168,13 @@ func main() {
 	deps.RedirectHTTPS = tlsProv != nil && rt.Cfg.Gateway.TLS.RedirectTo
 
 	handler := gateway.New(deps)
+	if db, err := mysql.Open(rt.Cfg.MySQL, rt.Log); err != nil {
+		rt.Log.Warn("mysql unavailable, cloak short links disabled", zap.Error(err))
+	} else {
+		cat := gateway.NewCloakCatalog(db, rt.Log)
+		handler.SetCloaks(cat)
+		go cat.Run(ctx)
+	}
 	if deps.OpenAPI != nil {
 		box, err := secretbox.New(rt.Cfg.Auth.SecretKey)
 		if err != nil {

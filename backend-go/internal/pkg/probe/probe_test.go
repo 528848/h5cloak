@@ -14,6 +14,12 @@ func TestMatchCNAME(t *testing.T) {
 	}
 }
 
+func TestNormalizeHost(t *testing.T) {
+	if NormalizeHost("https://iris6666.com/") != "iris6666.com" || NormalizeHost("iris6666.com:443") != "iris6666.com" {
+		t.Fatal("normalize")
+	}
+}
+
 func TestContainsTXT(t *testing.T) {
 	if !ContainsTXT([]string{"v=spf1", "cloak-verify=abc"}, "cloak-verify=abc") {
 		t.Fatal("expected hit")

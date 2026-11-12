@@ -109,7 +109,18 @@ func (r *LogRepo) ApplyAttribution(ctx context.Context, w *decisionlog.Attributi
 			if w.TouchType == "first" {
 				col = "first_pass_count"
 			}
-			if err := tx.Exec("UPDATE promo_codes SET visit_count = visit_count + 1, "+col+" = "+col+" + 1, last_visit_at = ? WHERE id = ?", w.At, statCodeID).Error; err != nil {
+			// 访问人数按 IP 去重：这个归因码下，同一个 IP 只加一次。
+			setVisit := ""
+			if w.IPHash != "" {
+				res := tx.Exec(`INSERT IGNORE INTO promo_code_ips (code_id, ip_hash, first_seen_at) VALUES (?, ?, ?)`, statCodeID, w.IPHash, w.At)
+				if res.Error != nil {
+					return res.Error
+				}
+				if res.RowsAffected > 0 {
+					setVisit = "visit_count = visit_count + 1, "
+				}
+			}
+			if err := tx.Exec("UPDATE promo_codes SET "+setVisit+col+" = "+col+" + 1, last_visit_at = ? WHERE id = ?", w.At, statCodeID).Error; err != nil {
 				return err
 			}
 		}
@@ -251,11 +262,28 @@ func (r *LogRepo) ListAPILogs(ctx context.Context, f APILogFilter) ([]decisionlo
 	return rows, total, err
 }
 
+// FindAPILog 按主键读取一条接口日志。
+func (r *LogRepo) FindAPILog(ctx context.Context, id uint64) (*decisionlog.APILog, error) {
+	var row decisionlog.APILog
+	err := r.db.WithContext(ctx).First(&row, id).Error
+	return wrap(&row, err)
+}
+
 // Purge 删除某商户早于 before 的决策日志，分批避免长事务；返回删除行数。
 func (r *LogRepo) Purge(ctx context.Context, merchantID uint64, before time.Time, batch int) (int64, error) {
 	var total int64
 	for {
 		res := r.db.WithContext(ctx).Exec("DELETE FROM decision_logs WHERE merchant_id = ? AND created_at < ? LIMIT ?", merchantID, before, batch)
+		if res.Error != nil {
+			return total, res.Error
+		}
+		total += res.RowsAffected
+		if res.RowsAffected < int64(batch) {
+			break
+		}
+	}
+	for {
+		res := r.db.WithContext(ctx).Exec("DELETE FROM cloak_access_logs WHERE merchant_id = ? AND created_at < ? LIMIT ?", merchantID, before, batch)
 		if res.Error != nil {
 			return total, res.Error
 		}
@@ -283,11 +311,16 @@ type LogFilter struct {
 	InApp      string
 	VisitorID  string
 	RequestID  string
+	PageOnly   bool // 只看网站页面路径，过滤页面内的文件请求
 	Page, Size int
 }
 
 func (r *LogRepo) ListDecisions(ctx context.Context, f LogFilter) ([]decisionlog.Record, int64, error) {
 	q := r.db.WithContext(ctx).Model(&decisionlog.Record{})
+	// 只看页面路径时，排除静态资源（bypass）与页面内的文件请求；按 request_id 精确查时不过滤。
+	if f.PageOnly && f.RequestID == "" {
+		q = q.Where(pagePathSQL)
+	}
 	if f.MerchantID > 0 {
 		q = q.Where("merchant_id = ?", f.MerchantID)
 	}

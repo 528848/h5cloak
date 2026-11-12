@@ -102,17 +102,33 @@ func (m *Mailer) Send(ctx context.Context, to []string, subject, text, html stri
 	return c.Quit()
 }
 
-// Telegram Bot 发消息。
+// Telegram Bot 发消息。apiBase + token 决定用哪个机器人。
 type Telegram struct {
-	cfg    config.Telegram
-	client *http.Client
+	apiBase string
+	token   string
+	client  *http.Client
 }
 
+const defaultTelegramAPI = "https://api.telegram.org"
+
+// NewTelegram 用全局配置（平台共用 Bot）构造。
 func NewTelegram(cfg config.Telegram) *Telegram {
-	return &Telegram{cfg: cfg, client: &http.Client{Timeout: 10 * time.Second}}
+	return NewTelegramWithToken(cfg.APIBase, cfg.BotToken)
 }
 
-func (t *Telegram) Configured() bool { return t.cfg.BotToken != "" }
+// NewTelegramWithToken 用指定 Token 构造（每商户自有 Bot）。
+func NewTelegramWithToken(apiBase, token string) *Telegram {
+	if apiBase == "" {
+		apiBase = defaultTelegramAPI
+	}
+	return &Telegram{apiBase: strings.TrimRight(apiBase, "/"), token: token, client: &http.Client{Timeout: 60 * time.Second}}
+}
+
+func (t *Telegram) Configured() bool { return t.token != "" }
+
+func (t *Telegram) method(name string) string {
+	return t.apiBase + "/bot" + t.token + "/" + name
+}
 
 // Send 发送 HTML 格式消息。
 func (t *Telegram) Send(ctx context.Context, chatID, html string) error {
@@ -123,8 +139,7 @@ func (t *Telegram) Send(ctx context.Context, chatID, html string) error {
 		return errors.New("no_chat_id")
 	}
 	body, _ := json.Marshal(map[string]any{"chat_id": chatID, "text": html, "parse_mode": "HTML", "disable_web_page_preview": true})
-	u := strings.TrimRight(t.cfg.APIBase, "/") + "/bot" + t.cfg.BotToken + "/sendMessage"
-	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(body))
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, t.method("sendMessage"), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	res, err := t.client.Do(req)
 	if err != nil {
@@ -136,6 +151,90 @@ func (t *Telegram) Send(ctx context.Context, chatID, html string) error {
 		return fmt.Errorf("telegram %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return nil
+}
+
+// TelegramUser getMe 返回的机器人账号。
+type TelegramUser struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"first_name"`
+}
+
+// GetMe 校验 Token，返回机器人账号信息。401 等非 200 返回错误。
+func (t *Telegram) GetMe(ctx context.Context) (*TelegramUser, error) {
+	if !t.Configured() {
+		return nil, ErrNotConfigured
+	}
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, t.method("getMe"), nil)
+	res, err := t.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 2048))
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("telegram %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		OK     bool         `json:"ok"`
+		Result TelegramUser `json:"result"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil || !out.OK {
+		return nil, errors.New("telegram getMe failed")
+	}
+	return &out.Result, nil
+}
+
+// TelegramUpdate 入站更新（只关心文字消息）。
+type TelegramUpdate struct {
+	UpdateID int64 `json:"update_id"`
+	Message  *struct {
+		MessageID int64  `json:"message_id"`
+		Text      string `json:"text"`
+		Chat      struct {
+			ID       int64  `json:"id"`
+			Type     string `json:"type"`
+			Title    string `json:"title"`
+			Username string `json:"username"`
+			First    string `json:"first_name"`
+		} `json:"chat"`
+		From struct {
+			Username string `json:"username"`
+			First    string `json:"first_name"`
+		} `json:"from"`
+	} `json:"message"`
+}
+
+// GetUpdates 长轮询拉取更新。offset 为已处理的最大 update_id + 1；timeout 为长轮询秒数。
+func (t *Telegram) GetUpdates(ctx context.Context, offset int64, timeoutSec int) ([]TelegramUpdate, error) {
+	if !t.Configured() {
+		return nil, ErrNotConfigured
+	}
+	q := url.Values{}
+	if offset > 0 {
+		q.Set("offset", strconv.FormatInt(offset, 10))
+	}
+	q.Set("timeout", strconv.Itoa(timeoutSec))
+	q.Set("allowed_updates", `["message"]`)
+	u := t.method("getUpdates") + "?" + q.Encode()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	res, err := t.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(res.Body, 1<<20))
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("telegram %d: %s", res.StatusCode, strings.TrimSpace(string(b)))
+	}
+	var out struct {
+		OK     bool             `json:"ok"`
+		Result []TelegramUpdate `json:"result"`
+	}
+	if err := json.Unmarshal(b, &out); err != nil || !out.OK {
+		return nil, errors.New("telegram getUpdates failed")
+	}
+	return out.Result, nil
 }
 
 // ---- Webhook ----

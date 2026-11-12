@@ -4,7 +4,7 @@
       <el-col :lg="14" :xs="24">
         <section-card
           title="链接参数"
-          subtitle="选择站点与域名，填上分销码和来源参数，生成可直接投放的链接"
+          subtitle="选择站点与域名，填上归因码和来源参数，生成可直接投放的链接"
           class="page-section"
         >
           <el-form
@@ -55,7 +55,7 @@
             <el-form-item :label="codeLabel">
               <el-input
                 v-model.trim="form.code"
-                placeholder="已登记的分销码或活动码，留空则不带码"
+                placeholder="已登记的归因码（分销码 / 活动码），留空则不带码"
                 class="mono"
               />
               <div v-if="options.codeParam" class="field-hint">
@@ -157,7 +157,7 @@
           class="page-section"
         >
           <div class="side-kv"
-            ><span>分销码</span><em>须在分销码列表中登记且状态有效</em></div
+            ><span>归因码</span><em>须在归因码列表中登记且状态有效</em></div
           >
           <div class="side-kv"
             ><span>点击参数</span
@@ -222,9 +222,7 @@
     ]
   };
 
-  const codeLabel = computed(() =>
-    options.value.campaignParam ? '分销/活动码' : '分销码'
-  );
+  const codeLabel = computed(() => '归因码');
   const sourceParams = computed(() =>
     (options.value.sourceParams || []).map((p) => ({
       name: p.name,

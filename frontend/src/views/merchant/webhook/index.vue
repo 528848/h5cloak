@@ -164,9 +164,6 @@
                   <el-option value="success" label="成功" />
                   <el-option value="failed" label="失败" />
                 </el-select>
-                <el-button link type="primary" :icon="Refresh" @click="reload"
-                  >刷新</el-button
-                >
               </el-space>
             </template>
             <template #event="{ row }">
@@ -229,8 +226,10 @@
               :value="ev"
               :label="ev"
               class="ev-check"
-              ><span class="mono">{{ ev }}</span></el-checkbox
             >
+              <span class="mono">{{ ev }}</span>
+              <span class="ev-name">{{ eventName(ev) }}</span>
+            </el-checkbox>
           </el-checkbox-group>
           <div class="muted-text form-tip">不勾选表示订阅全部事件</div>
         </el-form-item>
@@ -302,7 +301,7 @@
 
 <script setup>
   import { ref, computed, onMounted } from 'vue';
-  import { Plus, Refresh } from '@element-plus/icons-vue';
+  import { Plus } from '@element-plus/icons-vue';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';
   import {
@@ -320,6 +319,22 @@
   defineOptions({ name: 'MerchantWebhook' });
 
   const endpoints = ref([]);
+  const eventNames = {
+    'origin.unhealthy': '源站不可达',
+    'origin.unhealthy.resolved': '源站已恢复',
+    'domain.unhealthy': '域名解析异常',
+    'domain.unhealthy.resolved': '域名已恢复',
+    'certificate.expiring': '证书即将到期',
+    'certificate.expiring.resolved': '证书已恢复',
+    'quota.threshold': '额度阈值',
+    'traffic.review_spike': '审核返回占比突增',
+    'code.abnormal': '归因码异常高频',
+    'validation.spike': '校验失败突增',
+    'decision.degraded': '判定降级率',
+    'export.done': '导出完成',
+    'webhook.test': '测试事件'
+  };
+  const eventName = (key) => eventNames[key] || '';
   const events = ref([]);
   const currentId = ref(null);
   const current = computed(() =>
@@ -594,6 +609,19 @@ event = request.get_json()  # id / event / merchantId / createdAt / data`
     width: 100%;
     margin-right: 0;
     height: 26px;
+  }
+
+  .ev-check :deep(.el-checkbox__label) {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .ev-name {
+    color: var(--el-text-color-regular);
+    font-family: inherit;
   }
 
   .form-tip {

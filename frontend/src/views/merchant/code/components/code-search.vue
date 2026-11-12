@@ -1,4 +1,4 @@
-<!-- 分销码搜索 -->
+<!-- 归因码搜索 -->
 <template>
   <ele-card search-form class="page-section">
     <el-form label-width="72px" @keyup.enter="handleSearch" @submit.prevent="">
@@ -27,23 +27,6 @@
               clearable
               placeholder="码值、名称、渠道"
             />
-          </el-form-item>
-        </el-col>
-        <el-col :lg="4" :md="8" :sm="12" :xs="24">
-          <el-form-item label="类型">
-            <el-select
-              v-model="form.codeType"
-              clearable
-              placeholder="全部"
-              class="ele-fluid"
-            >
-              <el-option
-                v-for="o in codeTypeOptions"
-                :key="o.value"
-                :label="o.label"
-                :value="o.value"
-              />
-            </el-select>
           </el-form-item>
         </el-col>
         <el-col :lg="4" :md="8" :sm="12" :xs="24">
@@ -84,7 +67,7 @@
 <script setup>
   import { computed } from 'vue';
   import { useFormData } from '@/utils/use-form-data';
-  import { codeTypeOptions, codeStatusOptions } from '../constants';
+  import { codeStatusOptions } from '../constants';
 
   const props = defineProps({
     sites: { type: Array, default: () => [] },
@@ -99,13 +82,11 @@
 
   const [form, resetFields] = useFormData({
     keyword: '',
-    codeType: '',
     status: ''
   });
 
   const where = () => ({
     keyword: form.keyword,
-    codeType: form.codeType,
     status: form.status,
     siteId: props.siteId || undefined
   });

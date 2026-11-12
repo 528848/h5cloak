@@ -11,6 +11,7 @@ import (
 
 	"cloak/internal/app/attrsvc"
 	"cloak/internal/app/authsvc"
+	"cloak/internal/app/cloaksvc"
 	"cloak/internal/app/decisionsvc"
 	"cloak/internal/app/logsvc"
 	"cloak/internal/app/merchantsvc"
@@ -18,6 +19,7 @@ import (
 	"cloak/internal/app/platformsvc"
 	"cloak/internal/app/sitesvc"
 	"cloak/internal/app/snapshotsvc"
+	"cloak/internal/app/telegramsvc"
 	"cloak/internal/app/usersvc"
 	"cloak/internal/config"
 	"cloak/internal/domain/identity"
@@ -39,11 +41,13 @@ type Deps struct {
 	Merchants   *merchantsvc.Service
 	Users       *usersvc.Service
 	Sites       *sitesvc.Service
+	Cloaks      *cloaksvc.Service
 	Attribution *attrsvc.Service
 	Decision    *decisionsvc.Service
 	Publisher   *snapshotsvc.Publisher
 	Logs        *logsvc.Service
 	Ops         *opssvc.Service
+	Telegram    *telegramsvc.Service
 	Platform    *platformsvc.Service
 	Rdb         *goredis.Client
 	Repo        identity.MerchantRepository
@@ -91,7 +95,7 @@ func NewRouter(d Deps) *gin.Engine {
 		r.Static("/uploads", d.Upload.Dir)
 	}
 
-	ah := &authHandler{svc: d.Auth}
+	ah := &authHandler{svc: d.Auth, captchas: newCaptchaStore(d.Rdb)}
 	ph := &profileHandler{svc: d.Auth, uploadDir: d.Upload.Dir, publicURL: d.Upload.PublicURL}
 
 	api.POST("/login", ah.login)
@@ -129,6 +133,9 @@ func NewRouter(d Deps) *gin.Engine {
 		merchantG.GET("/report/reconcile", middleware.RequirePerm("report:view"), oh.reconcile)
 		merchantG.POST("/export", middleware.RequirePerm("report:export"), oh.createExport)
 		merchantG.GET("/export/list", middleware.RequirePerm("report:view"), oh.exports)
+		merchantG.GET("/export/stats", middleware.RequirePerm("report:view"), oh.exportStats)
+		merchantG.POST("/export/:id/retry", middleware.RequirePerm("report:export"), oh.retryExport)
+		merchantG.POST("/export/:id/cancel", middleware.RequirePerm("report:export"), oh.cancelExport)
 		merchantG.GET("/export/:id/link", middleware.RequirePerm("report:view"), oh.exportLink)
 
 		merchantG.GET("/alert/rules", middleware.RequirePerm("alert:view"), oh.rules)
@@ -140,6 +147,19 @@ func NewRouter(d Deps) *gin.Engine {
 		merchantG.GET("/notify/settings", middleware.RequirePerm("alert:view"), oh.notifySettings)
 		merchantG.PUT("/notify/settings", middleware.RequirePerm("alert:edit"), oh.saveNotifySettings)
 		merchantG.POST("/notify/test/:channel", middleware.RequirePerm("alert:edit"), oh.testChannel)
+
+		if d.Telegram != nil {
+			th := &telegramHandler{svc: d.Telegram}
+			merchantG.GET("/telegram", middleware.RequirePerm("alert:view"), th.config)
+			merchantG.PUT("/telegram/bot", middleware.RequirePerm("alert:edit"), th.saveBot)
+			merchantG.DELETE("/telegram/bot", middleware.RequirePerm("alert:edit"), th.deleteBot)
+			merchantG.POST("/telegram/bind-code", middleware.RequirePerm("alert:edit"), th.bindCode)
+			merchantG.GET("/telegram/chats", middleware.RequirePerm("alert:view"), th.chats)
+			merchantG.POST("/telegram/chats/:id/toggle", middleware.RequirePerm("alert:edit"), th.toggleChat)
+			merchantG.DELETE("/telegram/chats/:id", middleware.RequirePerm("alert:edit"), th.deleteChat)
+			merchantG.PUT("/telegram/daily", middleware.RequirePerm("alert:edit"), th.saveDaily)
+			merchantG.POST("/telegram/test", middleware.RequirePerm("alert:edit"), th.test)
+		}
 		merchantG.GET("/notification/list", oh.notifications)
 		merchantG.GET("/notification/unread", oh.unread)
 		merchantG.POST("/notification/read", oh.markRead)
@@ -181,11 +201,16 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.GET("/system/settings", middleware.RequirePerm("system:config:view"), ph.settings)
 		adminG.PUT("/system/settings", middleware.RequirePerm("system:config:edit"), ph.saveSettings)
 		adminG.GET("/system/nodes", middleware.RequirePerm("system:config:view"), ph.nodes)
+		adminG.GET("/template/stats", middleware.RequirePerm("system:template:list"), ph.templateStats)
 		adminG.GET("/template/list", middleware.RequirePerm("system:template:list"), ph.templates)
 		adminG.GET("/template/:id", middleware.RequirePerm("system:template:list"), ph.template)
 		adminG.POST("/template", middleware.RequirePerm("system:template:edit"), ph.saveTemplate)
 		adminG.PUT("/template/:id", middleware.RequirePerm("system:template:edit"), ph.saveTemplate)
 		adminG.DELETE("/template/:id", middleware.RequirePerm("system:template:edit"), ph.deleteTemplate)
+		adminG.PUT("/template/:id/status", middleware.RequirePerm("system:template:edit"), ph.templateStatus)
+		adminG.POST("/template/:id/package", middleware.RequirePerm("system:template:edit"), ph.templatePackage)
+		adminG.POST("/template/:id/rollback", middleware.RequirePerm("system:template:edit"), ph.templateRollback)
+		adminG.POST("/template/:id/preview", middleware.RequirePerm("system:template:list"), ph.templatePreview)
 		adminG.GET("/code/list", middleware.RequirePerm("platform:code:list"), ph.codes)
 		adminG.PUT("/code/changeStatus", middleware.RequirePerm("platform:code:status"), ph.codeStatus)
 		adminG.GET("/account/list", middleware.RequirePerm("system:user:list"), ph.users)
@@ -200,6 +225,19 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.DELETE("/role/:id", middleware.RequirePerm("system:role:edit"), ph.deleteRole)
 		adminG.GET("/menu/list", middleware.RequirePerm("system:menu:list"), ph.menus)
 		adminG.PUT("/menu/:id", middleware.RequirePerm("system:menu:edit"), ph.updateMenu)
+	}
+
+	if d.Cloaks != nil {
+		ch := &cloakHandler{svc: d.Cloaks}
+		merchantG.GET("/cloak/stats", middleware.RequirePerm("cloak:cloak:list"), ch.stats)
+		merchantG.GET("/cloak/list", middleware.RequirePerm("cloak:cloak:list"), ch.list)
+		merchantG.GET("/cloak/domain-options", middleware.RequirePerm("cloak:cloak:list"), ch.domainOptions)
+		merchantG.POST("/cloak", middleware.RequirePerm("cloak:cloak:add"), ch.create)
+		merchantG.PUT("/cloak/changeStatus", middleware.RequirePerm("cloak:cloak:status"), ch.changeStatus)
+		merchantG.GET("/cloak/:id", middleware.RequirePerm("cloak:cloak:list"), ch.get)
+		merchantG.PUT("/cloak/:id", middleware.RequirePerm("cloak:cloak:edit"), ch.update)
+		merchantG.POST("/cloak/:id/copy", middleware.RequirePerm("cloak:cloak:copy"), ch.copy)
+		merchantG.DELETE("/cloak/:id", middleware.RequirePerm("cloak:cloak:remove"), ch.remove)
 	}
 
 	if d.Sites != nil {
@@ -280,11 +318,18 @@ func NewRouter(d Deps) *gin.Engine {
 		adminG.GET("/decision-log/stats", middleware.RequirePerm("log:decision:list"), lh.stats)
 		adminG.GET("/decision-log/:requestId", middleware.RequirePerm("log:decision:list"), lh.detail)
 		merchantG.GET("/api-log/list", middleware.RequirePerm("cloak:apiLog:list"), lh.apiLogs)
+		merchantG.GET("/api-log/:id", middleware.RequirePerm("cloak:apiLog:list"), lh.apiDetail)
 		adminG.GET("/api-log/list", middleware.RequirePerm("cloak:apiLog:list"), lh.apiLogs)
+		adminG.GET("/api-log/:id", middleware.RequirePerm("cloak:apiLog:list"), lh.apiDetail)
 	}
 
 	uh := &userHandler{svc: d.Users}
 	merchantG.GET("/role/list", middleware.RequirePerm("merchant:user:list"), uh.roles)
+	merchantG.GET("/role/manage", middleware.RequirePerm("merchant:role:list"), uh.manageRoles)
+	merchantG.POST("/role", middleware.RequirePerm("merchant:role:edit"), uh.saveRole)
+	merchantG.PUT("/role/:id", middleware.RequirePerm("merchant:role:edit"), uh.saveRole)
+	merchantG.DELETE("/role/:id", middleware.RequirePerm("merchant:role:edit"), uh.removeRole)
+	merchantG.GET("/menu/list", middleware.RequirePerm("merchant:menu:list"), uh.menus)
 	merchantG.GET("/user/list", middleware.RequirePerm("merchant:user:list"), uh.list)
 	merchantG.POST("/user", middleware.RequirePerm("merchant:user:add"), uh.create)
 	merchantG.PUT("/user/changeStatus", middleware.RequirePerm("merchant:user:status"), uh.changeStatus)

@@ -14,13 +14,16 @@ const (
 )
 
 // Match 返回第一条命中的规则（按 sort 升序），未命中返回 nil。
-// 后缀规则忽略大小写（静态资源扩展名），前缀与精确按原样比较。
+// 平台静态资源后缀优先于站点规则。站点后缀规则忽略大小写，前缀与精确按原样比较。
 func Match(site *snapshot.Site, path string) *snapshot.PathRule {
 	if path == "" {
 		path = "/"
 	}
-	rules := site.SortedRules()
 	lower := strings.ToLower(path)
+	if rule := matchStatic(lower); rule != nil {
+		return rule
+	}
+	rules := site.SortedRules()
 	for i := range rules {
 		r := &rules[i]
 		switch r.MatchType {

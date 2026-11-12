@@ -382,10 +382,169 @@ func TestRewriteHelpers(t *testing.T) {
 	if stripPort("[::1]:80") != "[::1]" || stripPort("a.b:1") != "a.b" || stripPort("a.b") != "a.b" {
 		t.Fatal("stripPort")
 	}
-	if openInBrowserHref("https://s/x", "android") != "intent://s/x#Intent;scheme=https;action=android.intent.action.VIEW;end" {
+	if normalizeHostHeader("https://iris6666.com/") != "iris6666.com" || normalizeHostHeader("iris6666.com:443") != "iris6666.com" {
+		t.Fatal("normalize host header")
+	}
+	if tlsServerName("203.0.113.10", "https://iris6666.com/") != "iris6666.com" {
+		t.Fatal("sni from host header")
+	}
+	if tlsServerName("review.com", "review.com") != "" || tlsServerName("203.0.113.10", "203.0.113.10") != "" {
+		t.Fatal("sni should stay on url host")
+	}
+	if openInBrowserHref("https://s/x", "android") != "intent://s/x#Intent;scheme=https;action=android.intent.action.VIEW;category=android.intent.category.BROWSABLE;S.browser_fallback_url=https%3A%2F%2Fs%2Fx;end" {
 		t.Fatal("android intent")
 	}
 	if openInBrowserHref("http://s/x", "ios") != "http://s/x" || openInBrowserHref("https://s/x", "windows") != "https://s/x" {
 		t.Fatal("non-https ios / other os")
 	}
+}
+
+func TestRewriteBodyHost(t *testing.T) {
+	in := []byte(`<a href="https://toptime.cc/shop">x</a>
+<link href="//toptime.cc/wp-content/a.css">
+<img src="HTTP://TopTime.CC/logo.png">
+<a href="https://cdn.toptime.cc/x">cdn</a>
+<a href="https://toptime.ccx/x">longer</a>
+<script>var u="https:\/\/toptime.cc\/cart";</script>
+<style>body{background:url(//toptime.cc/bg.png)}</style>
+<a href="https://wp.me/share?url=https%3A%2F%2Ftoptime.cc%2F">share</a>
+<footer>@2024 toptime.cc.</footer>
+<link rel="alternate" title="toptime.cc">
+<script>{"title":"toptime.cc","msg":"Hello, toptime.cc\r\nBye"}</script>`)
+	got := string(rewriteBodyHost(in, []string{"toptime.cc"}, "iris6666.com", "https"))
+	for _, want := range []string{
+		`https://iris6666.com/shop`,
+		`//iris6666.com/wp-content/a.css`,
+		`https://iris6666.com/logo.png`,
+		`https:\/\/iris6666.com\/cart`,
+		`url(//iris6666.com/bg.png)`,
+		`url=https%3A%2F%2Firis6666.com%2F`,
+		`@2024 iris6666.com.`,
+		`title="iris6666.com"`,
+		`"title":"iris6666.com"`,
+		`Hello, iris6666.com\r\nBye`,
+		`https://cdn.toptime.cc/x`,
+		`https://toptime.ccx/x`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in\n%s", want, got)
+		}
+	}
+	for _, leak := range []string{`//toptime.cc/`, `toptime.cc"`, `@2024 toptime.cc`, `%2F%2Ftoptime.cc`, `Hello, toptime.cc`} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("origin host leaked %q in\n%s", leak, got)
+		}
+	}
+	if !strings.Contains(got, "cdn.toptime.cc") || !strings.Contains(got, "toptime.ccx") {
+		t.Fatalf("subdomain/longer host must stay:\n%s", got)
+	}
+	pub := rewriteBodyHost([]byte("https://shop.test/a"), []string{"shop.test"}, "shop.test", "https")
+	if string(pub) != "https://shop.test/a" {
+		t.Fatalf("same host rewritten: %s", pub)
+	}
+}
+
+func TestDeepProxyRewritesHTML(t *testing.T) {
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept-Encoding") != "identity" {
+			t.Errorf("accept-encoding: %s", r.Header.Get("Accept-Encoding"))
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		h := stripPort(r.Host)
+		_, _ = w.Write([]byte(`<a href="https://` + h + `/cat">cat</a><script src="//` + h + `/app.js"></script>`))
+	}))
+	defer origin.Close()
+	originHost := stripPort(mustURLHost(origin.URL))
+	s := site(origin.URL, "")
+	r := httptest.NewRequest(http.MethodGet, "https://shop.test/", nil)
+	r.Host = "shop.test"
+	rec, res := do(newProxy(), s, realDecision(), r)
+	if res.Error != "" || rec.Code != 200 {
+		t.Fatalf("result %+v code %d body %s", res, rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `https://shop.test/cat`) || !strings.Contains(body, `//shop.test/app.js`) {
+		t.Fatalf("body not rewritten: %s", body)
+	}
+	if strings.Contains(body, originHost) {
+		t.Fatalf("origin host still in body: %s", body)
+	}
+}
+
+func TestReviewRewriteCache(t *testing.T) {
+	var hits int
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Set-Cookie", "sess=abc; Path=/")
+		h := stripPort(r.Host)
+		_, _ = w.Write([]byte(`<a href="https://` + h + `/x">x</a>`))
+	}))
+	defer origin.Close()
+	p := New(config.Proxy{MaxBodyBytes: 1 << 20, ReviewNoIndex: true, ReviewCacheTTL: time.Minute, ReviewCacheMB: 8}, zap.NewNop())
+	s := site("", origin.URL)
+	s.Review.Source = "origin"
+	_ = s.Compile()
+	d := &engine.Decision{Content: engine.ContentReview, TouchType: engine.TouchNone}
+	req := func() *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "https://shop.test/", nil)
+		r.Host = "shop.test"
+		return r
+	}
+
+	rec1, res1 := do(p, s, d, req())
+	if res1.Error != "" || rec1.Code != 200 || hits != 1 {
+		t.Fatalf("first %+v code %d hits %d body %s", res1, rec1.Code, hits, rec1.Body.String())
+	}
+	if !strings.Contains(rec1.Body.String(), `https://shop.test/x`) {
+		t.Fatalf("rewrite: %s", rec1.Body.String())
+	}
+	if rec1.Header().Get("Set-Cookie") == "" {
+		t.Fatal("first response should still pass origin cookies")
+	}
+
+	rec2, res2 := do(p, s, d, req())
+	if hits != 1 {
+		t.Fatalf("second should be cached, origin hits=%d", hits)
+	}
+	if res2.OriginStatus != 200 || rec2.Body.String() != rec1.Body.String() {
+		t.Fatalf("cached body mismatch: %+v %s", res2, rec2.Body.String())
+	}
+	if rec2.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("cached response must not replay origin cookies: %s", rec2.Header().Get("Set-Cookie"))
+	}
+	if rec2.Header().Get("X-Robots-Tag") == "" {
+		t.Fatal("robots")
+	}
+
+	s.Revision = 2
+	_, _ = do(p, s, d, req())
+	if hits != 2 {
+		t.Fatalf("revision should miss cache, hits=%d", hits)
+	}
+}
+
+func TestReviewCacheTTLAndCap(t *testing.T) {
+	c := newReviewCache(40*time.Millisecond, 8)
+	c.set("k", 200, "text/html", []byte("hi"))
+	if e := c.get("k"); e == nil || string(e.body) != "hi" {
+		t.Fatal("miss")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if c.get("k") != nil {
+		t.Fatal("expired")
+	}
+	c.set("a", 200, "text/html", []byte("12345"))
+	c.set("b", 200, "text/html", []byte("12345"))
+	if c.get("a") != nil && c.get("b") != nil {
+		t.Fatal("over-cap should evict")
+	}
+}
+
+func mustURLHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }

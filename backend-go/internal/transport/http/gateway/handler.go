@@ -61,6 +61,7 @@ type Handler struct {
 	proxied   *prometheus.CounterVec
 	latency   prometheus.Histogram
 	trusted   []netip.Prefix
+	cloaks    *CloakCatalog
 	started   time.Time
 	roll      *rolling
 }
@@ -118,6 +119,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		openapi.ServeSDK(w, r)
 		return
 	}
+	if code, ok := parseCloakCode(r.URL.Path); ok {
+		h.serveCloak(w, r, code)
+		return
+	}
 
 	if h.d.Store == nil || h.d.Engine == nil {
 		h.notFound(w)
@@ -156,7 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// 额度：bypass 不计量；超额按商户策略覆盖判定
 	quotaHit := ""
-	if d.Content != engine.ContentBypass && h.d.Quota != nil {
+	if !d.Unmetered() && h.d.Quota != nil {
 		if h.d.Quota.Over(r.Context(), site.MerchantID, site.Quota.Decisions) {
 			switch site.Quota.Policy {
 			case quota.PolicyReviewAll:
@@ -268,6 +273,7 @@ func (h *Handler) emit(rc *engine.RequestContext, d *engine.Decision, res proxy.
 			VisitorID: d.VisitorID, AttributionID: d.AttributionID, TouchType: d.TouchType, HandoffKind: d.HandoffKind,
 			Channel: d.Channel, MatchedParams: d.MatchedParams, LandingPath: rc.URL.Path, Confidence: d.Confidence,
 			ExpiresAt: ev.AttributionExpiresAt, Country: country, DeviceFamily: d.InApp.DeviceFamily, InAppBrowser: d.InApp.App,
+			IPHash: ev.IPHash,
 		}
 		if d.Code != nil {
 			aw.CodeID = d.Code.ID

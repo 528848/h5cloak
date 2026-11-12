@@ -42,6 +42,7 @@ type Proxy struct {
 	tr        *transports
 	templates *templateCache
 	maint     []byte
+	cache     *reviewCache
 }
 
 // New 创建代理。
@@ -49,7 +50,8 @@ func New(cfg config.Proxy, log *zap.Logger) *Proxy {
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = 32 << 20
 	}
-	p := &Proxy{cfg: cfg, log: log, tr: newTransports(cfg), templates: newTemplateCache(), maint: []byte(maintenanceHTML)}
+	p := &Proxy{cfg: cfg, log: log, tr: newTransports(cfg), templates: newTemplateCache(), maint: []byte(maintenanceHTML),
+		cache: newReviewCache(cfg.ReviewCacheTTL, int64(cfg.ReviewCacheMB)<<20)}
 	if cfg.MaintenanceHTML != "" {
 		if b, err := readFile(cfg.MaintenanceHTML); err == nil {
 			p.maint = b
@@ -117,13 +119,42 @@ func (p *Proxy) serveReview(w http.ResponseWriter, r *http.Request, req Request)
 		}
 		return res.Result
 	case "static":
-		if serveStatic(w, r, site) {
-			return Result{Kind: "static"}
-		}
-		return p.serveTemplate(w, req)
+		return p.serveStaticReview(w, r, req, true)
 	default:
-		return p.serveTemplate(w, req)
+		switch site.Review.TemplateKind {
+		case "url":
+			origin := &snapshot.Origin{
+				Kind: "review", URL: site.Review.TemplateURL, HostHeader: site.Review.TemplateHost,
+				TimeoutMs: site.Review.TemplateTimeoutMs, Healthy: true,
+			}
+			if origin.URL == "" {
+				return p.serveTemplate(w, req)
+			}
+			res := p.forward(w, r, req, origin, "review")
+			if res.Error != "" && res.OriginStatus == 0 && !res.headersSent {
+				return p.serveTemplate(w, req)
+			}
+			return res.Result
+		case "static":
+			return p.serveStaticReview(w, r, req, site.Review.StaticSpaFallback)
+		default:
+			return p.serveTemplate(w, req)
+		}
 	}
+}
+
+func (p *Proxy) serveStaticReview(w http.ResponseWriter, r *http.Request, req Request, spa bool) Result {
+	if p.cfg.ReviewNoIndex {
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	}
+	if serveStatic(w, r, req.Site, spa) {
+		return Result{Kind: "static"}
+	}
+	if !spa {
+		p.writeHTML(w, http.StatusNotFound, []byte(notFoundHTML), true)
+		return Result{Kind: "not_found"}
+	}
+	return p.serveTemplate(w, req)
 }
 
 func (p *Proxy) serveTemplate(w http.ResponseWriter, req Request) Result {
@@ -179,8 +210,22 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, req Request, ori
 	if err != nil || target.Host == "" {
 		return forwardResult{Result: Result{Kind: kind, Error: "bad_origin_url"}}
 	}
+	// 审核页缓存：审核内容对无归因访客相同，命中缓存直接返回，不再回源。
+	cacheKey := ""
+	if kind == "review" && r.Method == http.MethodGet && p.cache != nil && !isWebSocket(r) {
+		cacheKey = reviewCacheKey(req.Site.SiteID, req.Site.Revision, r.Host, req.Scheme, r.Method, r.URL.RequestURI())
+		if e := p.cache.get(cacheKey); e != nil {
+			p.serveCachedReview(w, r, e)
+			return forwardResult{Result: Result{Kind: kind, OriginStatus: e.status}, headersSent: true}
+		}
+	}
 	if isWebSocket(r) {
 		return p.forwardWebSocket(w, r, req, target, origin, kind)
+	}
+	// 源站域名就是访客正在访问的域名时，回源会打回网关自己。带归因码走真实源站时会把 Set-Cookie 叠到协议错误。
+	if hostEq(stripPort(r.Host), target.Hostname()) || r.Header.Get("X-Cloak-Hop") != "" {
+		http.Error(w, "源站地址指回了当前访问域名，回源形成循环。请把真实源站改成网站实际所在的源站地址。", http.StatusLoopDetected)
+		return forwardResult{Result: Result{Kind: kind, Error: "origin_loop"}, headersSent: true}
 	}
 
 	// 请求体上限
@@ -210,6 +255,7 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, req Request, ori
 		"X-Cloak-Content":    d.Content,
 		"X-Cloak-Touch":      d.TouchType,
 		"X-Cloak-Request-Id": req.RequestID,
+		"X-Cloak-Hop":        "1",
 	}
 	if d.VisitorID != "" {
 		meta["X-Cloak-Visitor"] = d.VisitorID
@@ -217,22 +263,25 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, req Request, ori
 	// 用户关闭过引导条（会话 cookie _ck_hb）就不再注入引导条；链接延续不受影响
 	bannerWanted := req.Site.Handoff.Banner && !bannerDismissed(r)
 	injectHTMLNeeded := kind == "real" && d.InApp.InApp && d.HandoffToken != "" && (bannerWanted || req.Site.Handoff.LinkRewrite)
+	// 深度代理：源站域名与访客域名不同，需要改写响应体里的 URL
+	hostRewrite := needHostRewrite(kind, target, origin, r.Host)
 	rewriteRequest(out, r, target, origin.HostHeader, req.ClientIP, req.Scheme, meta)
-	if injectHTMLNeeded {
+	if injectHTMLNeeded || hostRewrite {
+		// 要改写响应体就让源站别压缩，网关自己再压
 		out.Header.Set("Accept-Encoding", "identity")
 	}
 
-	tr := p.tr.get(timeout)
-	resp, err := tr.RoundTrip(out)
+	sni := tlsServerName(target.Hostname(), origin.HostHeader)
+	resp, err := p.tr.roundTrip(out, timeout, sni)
 	if err != nil && isRetryable(r, err) {
 		// 幂等方法且在拿到响应头前失败：换连接重试一次
 		out2 := r.Clone(ctx)
 		out2.Body = http.NoBody
 		rewriteRequest(out2, r, target, origin.HostHeader, req.ClientIP, req.Scheme, meta)
-		if injectHTMLNeeded {
+		if injectHTMLNeeded || hostRewrite {
 			out2.Header.Set("Accept-Encoding", "identity")
 		}
-		resp, err = tr.RoundTrip(out2)
+		resp, err = p.tr.roundTrip(out2, timeout, sni)
 	}
 	if err != nil {
 		var maxErr *http.MaxBytesError
@@ -244,10 +293,10 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, req Request, ori
 	}
 	defer resp.Body.Close()
 
-	return p.writeResponse(w, r, req, resp, target, origin, kind, injectHTMLNeeded)
+	return p.writeResponse(w, r, req, resp, target, origin, kind, injectHTMLNeeded, cacheKey)
 }
 
-func (p *Proxy) writeResponse(w http.ResponseWriter, r *http.Request, req Request, resp *http.Response, target *url.URL, origin *snapshot.Origin, kind string, inject bool) forwardResult {
+func (p *Proxy) writeResponse(w http.ResponseWriter, r *http.Request, req Request, resp *http.Response, target *url.URL, origin *snapshot.Origin, kind string, inject bool, cacheKey string) forwardResult {
 	h := w.Header()
 	for k, vv := range resp.Header {
 		for _, v := range vv {
@@ -266,16 +315,37 @@ func (p *Proxy) writeResponse(w http.ResponseWriter, r *http.Request, req Reques
 		h.Add("Vary", "Cookie")
 	}
 
-	// 内置浏览器放行且为 HTML：改写响应体（引导条 / _ck 链接）
-	if inject && isHTML(resp.Header.Get("Content-Type")) && resp.Header.Get("Content-Encoding") == "" {
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	ct := resp.Header.Get("Content-Type")
+	hostRewrite := needHostRewrite(kind, target, origin, r.Host) && resp.Header.Get("Content-Encoding") == ""
+	htmlBody := isHTML(ct) && resp.Header.Get("Content-Encoding") == ""
+	// 需要改写响应体：内置浏览器引导条 / _ck 链接（HTML），或深度代理把源站域名换成访客域名
+	if (inject && htmlBody) || (hostRewrite && rewritableText(ct)) {
+		const maxRewriteBody = 8 << 20
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxRewriteBody+1))
 		if err != nil {
 			return forwardResult{Result: Result{Kind: kind, OriginStatus: resp.StatusCode, Error: "read_body"}, headersSent: false}
 		}
-		d := req.Decision
-		current := *r.URL
-		current.Scheme, current.Host = req.Scheme, r.Host
-		raw = injectHTML(raw, req.Site, &current, d.HandoffToken, d.InApp.OS, req.Site.Handoff.LinkRewrite, !bannerDismissed(r))
+		if len(raw) > maxRewriteBody {
+			// 超大正文不改写，原样吐出，避免截断页面
+			h.Del("Content-Length")
+			w.WriteHeader(resp.StatusCode)
+			_, _ = w.Write(raw)
+			_, _ = io.Copy(w, resp.Body)
+			return forwardResult{Result: Result{Kind: kind, OriginStatus: resp.StatusCode}, headersSent: true}
+		}
+		if hostRewrite {
+			raw = rewriteBodyHost(raw, originHosts(target, origin), r.Host, req.Scheme)
+		}
+		if inject && htmlBody {
+			d := req.Decision
+			current := *r.URL
+			current.Scheme, current.Host = req.Scheme, r.Host
+			raw = injectHTML(raw, req.Site, &current, d.HandoffToken, d.InApp.OS, req.Site.Handoff.LinkRewrite, !bannerDismissed(r))
+		}
+		// 改写后的审核页入缓存（未压缩）。带登录态的真实页不进。
+		if cacheKey != "" && resp.StatusCode >= 200 && resp.StatusCode < 400 {
+			p.cache.set(cacheKey, resp.StatusCode, ct, raw)
+		}
 		// 回源用了 identity，这里由网关自己压缩
 		if acceptsGzip(r) && len(raw) > 1024 {
 			if gz, err := gzipBytes(raw); err == nil {
@@ -310,6 +380,30 @@ func (p *Proxy) writeResponse(w http.ResponseWriter, r *http.Request, req Reques
 		}
 	}
 	return forwardResult{Result: Result{Kind: kind, OriginStatus: resp.StatusCode}, headersSent: true}
+}
+
+// serveCachedReview 直接吐出已改写的审核页，不再回源。
+func (p *Proxy) serveCachedReview(w http.ResponseWriter, r *http.Request, e *reviewEntry) {
+	h := w.Header()
+	if e.contentType != "" {
+		h.Set("Content-Type", e.contentType)
+	}
+	if p.cfg.ReviewNoIndex {
+		h.Set("X-Robots-Tag", "noindex, nofollow")
+	}
+	h.Set("Cache-Control", "private, no-store")
+	h.Add("Vary", "Cookie")
+	body := e.body
+	if acceptsGzip(r) && len(body) > 1024 {
+		if gz, err := gzipBytes(body); err == nil {
+			body = gz
+			h.Set("Content-Encoding", "gzip")
+			h.Add("Vary", "Accept-Encoding")
+		}
+	}
+	h.Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(e.status)
+	_, _ = w.Write(body)
 }
 
 func isRetryable(r *http.Request, err error) bool {

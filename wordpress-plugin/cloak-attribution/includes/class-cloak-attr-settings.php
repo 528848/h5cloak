@@ -13,7 +13,8 @@ class Cloak_Attr_Settings
     public const REVIEW_API_HTML = 'api_html';     // 用判定接口返回的平台模板 HTML（仅审核）
     public const REVIEW_WP_PAGE = 'wp_page';       // 在当前地址渲染站内某个页面
     public const REVIEW_HTML_FILE = 'html_file';   // 在当前地址输出服务器上的 HTML 文件
-    public const REVIEW_PROXY_URL = 'proxy_url';   // 服务端拉取外部地址内容后在当前地址输出
+    public const REVIEW_PROXY_URL = 'proxy_url';   // 服务端拉取外部地址内容后在当前地址输出（不改写域名）
+    public const REVIEW_DEEP_PROXY = 'deep_proxy'; // 深度代理：回源审核站并把其域名改写成本站域名后在当前地址输出
     // —— 真实页专用 ——
     public const MODE_CURRENT = 'current';         // 继续渲染访客打开的当前页面（仅真实页）
     // —— 兼容 V1 的跳转（302，地址会变）——
@@ -29,6 +30,7 @@ class Cloak_Attr_Settings
             self::REVIEW_WP_PAGE,
             self::REVIEW_HTML_FILE,
             self::REVIEW_PROXY_URL,
+            self::REVIEW_DEEP_PROXY,
             self::MODE_WP_PAGE_REDIRECT,
             self::MODE_EXTERNAL_REDIRECT,
             self::MODE_HTML_REDIRECT,
@@ -43,6 +45,7 @@ class Cloak_Attr_Settings
             self::REVIEW_WP_PAGE,
             self::REVIEW_HTML_FILE,
             self::REVIEW_PROXY_URL,
+            self::REVIEW_DEEP_PROXY,
             self::MODE_WP_PAGE_REDIRECT,
             self::MODE_EXTERNAL_REDIRECT,
             self::MODE_HTML_REDIRECT,
@@ -64,12 +67,17 @@ class Cloak_Attr_Settings
             'review_page_id' => 0,
             'review_html_path' => '',
             'review_proxy_url' => '',
+            'review_deep_origin' => '',   // deep_proxy 审核站地址
+            'review_deep_host' => '',     // deep_proxy 回源 Host（可选）
+            'proxy_cache_ttl' => 86400,  // 深度代理缓存秒数，由设置页的天数换算，0 关闭
             'review_external_url' => '',  // external_redirect 目标
             'review_html_url' => '',      // html_redirect 目标
             'real_mode' => self::MODE_CURRENT,
             'real_page_id' => 0,
             'real_html_path' => '',
             'real_proxy_url' => '',
+            'real_deep_origin' => '',
+            'real_deep_host' => '',
             'real_external_url' => '',
             'real_html_url' => '',
             'external_allowed_hosts' => '', // external_redirect 允许的主机，每行一个
@@ -132,13 +140,18 @@ class Cloak_Attr_Settings
             'review_mode' => $review_mode,
             'review_page_id' => absint($input['review_page_id'] ?? $current['review_page_id']),
             'review_html_path' => sanitize_text_field(str_replace('\\', '/', trim((string) ($input['review_html_path'] ?? $current['review_html_path'])))),
-            'review_proxy_url' => esc_url_raw(trim((string) ($input['review_proxy_url'] ?? $current['review_proxy_url']))),
+            'review_proxy_url' => self::sanitize_http_url((string) ($input['review_proxy_url'] ?? $current['review_proxy_url'])),
+            'review_deep_origin' => self::sanitize_http_url((string) ($input['review_deep_origin'] ?? $current['review_deep_origin'])),
+            'review_deep_host' => sanitize_text_field(trim((string) ($input['review_deep_host'] ?? $current['review_deep_host']))),
+            'proxy_cache_ttl' => self::cache_ttl_from_input($input, $current),
             'review_external_url' => esc_url_raw(trim((string) ($input['review_external_url'] ?? $current['review_external_url']))),
             'review_html_url' => esc_url_raw(trim((string) ($input['review_html_url'] ?? $current['review_html_url']))),
             'real_mode' => $real_mode,
             'real_page_id' => absint($input['real_page_id'] ?? $current['real_page_id']),
             'real_html_path' => sanitize_text_field(str_replace('\\', '/', trim((string) ($input['real_html_path'] ?? $current['real_html_path'])))),
-            'real_proxy_url' => esc_url_raw(trim((string) ($input['real_proxy_url'] ?? $current['real_proxy_url']))),
+            'real_proxy_url' => self::sanitize_http_url((string) ($input['real_proxy_url'] ?? $current['real_proxy_url'])),
+            'real_deep_origin' => self::sanitize_http_url((string) ($input['real_deep_origin'] ?? $current['real_deep_origin'])),
+            'real_deep_host' => sanitize_text_field(trim((string) ($input['real_deep_host'] ?? $current['real_deep_host']))),
             'real_external_url' => esc_url_raw(trim((string) ($input['real_external_url'] ?? $current['real_external_url']))),
             'real_html_url' => esc_url_raw(trim((string) ($input['real_html_url'] ?? $current['real_html_url']))),
             'external_allowed_hosts' => self::sanitize_hosts($input['external_allowed_hosts'] ?? $current['external_allowed_hosts']),
@@ -222,6 +235,54 @@ class Cloak_Attr_Settings
             default:
                 return [$side . '_mode' => $side === 'real' ? self::MODE_CURRENT : self::REVIEW_API_HTML];
         }
+    }
+
+    /** 设置页按天填写，这里换成秒。0 天表示关闭，最多 30 天。 */
+    public static function cache_ttl_from_input(array $input, array $current): int
+    {
+        if (!array_key_exists('proxy_cache_days', $input)) {
+            return max(0, (int) ($current['proxy_cache_ttl'] ?? 86400));
+        }
+        $days = max(0, min(30, (int) $input['proxy_cache_days']));
+        return $days * 86400;
+    }
+
+    /** 把已保存的秒数还原成设置页上的天数。不足 1 天但未关闭时显示为 1 天。 */
+    public static function cache_days(array $settings): int
+    {
+        $seconds = (int) ($settings['proxy_cache_ttl'] ?? 0);
+        if ($seconds <= 0) {
+            return 0;
+        }
+        return (int) max(1, (int) round($seconds / 86400));
+    }
+
+    /**
+     * 保存 http(s) 地址。浏览器的 url 输入框会拦下不带协议的内容，导致整张表单保存失败；
+     * 这里接受 toptime.cc 这种写法并补上 https。不借用 esc_url_raw，避免被其它插件的链接过滤清掉。
+     */
+    public static function sanitize_http_url(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+        if (!preg_match('#^[a-z][a-z0-9+.-]*://#i', $value)) {
+            $value = 'https://' . ltrim($value, '/');
+        }
+        $parts = wp_parse_url($value);
+        $host = strtolower((string) ($parts['host'] ?? ''));
+        if ($host === '' || !preg_match('/^[a-z0-9.-]+$/', $host)) {
+            return '';
+        }
+        $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+        if ($scheme !== 'http' && $scheme !== 'https') {
+            return '';
+        }
+        $port = isset($parts['port']) ? ':' . (int) $parts['port'] : '';
+        $path = (string) ($parts['path'] ?? '');
+        $query = isset($parts['query']) ? '?' . $parts['query'] : '';
+        return $scheme . '://' . $host . $port . $path . $query;
     }
 
     /** 外链白名单：每行一个主机或 URL，统一归一化为小写主机。 */

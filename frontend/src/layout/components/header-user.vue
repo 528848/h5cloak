@@ -29,8 +29,8 @@
     <div style="display: flex; align-items: center; height: 100%">
       <el-avatar
         :size="28"
-        :src="loginUser.avatar"
-        style="margin-left: -2px; background: none"
+        :icon="UserOutlined"
+        style="margin-left: -2px"
       />
       <div
         class="hidden-sm-and-down"

@@ -29,11 +29,6 @@
         :cache-key="`${portal}DecisionLogTable`"
         :page-size="20"
       >
-        <template #toolbar>
-          <el-button link type="primary" :icon="Refresh" @click="reload()"
-            >刷新</el-button
-          >
-        </template>
         <template #createdAt="{ row }">
           <el-link
             type="primary"
@@ -110,7 +105,6 @@
 
 <script setup>
   import { ref, computed, watch, onMounted } from 'vue';
-  import { Refresh } from '@element-plus/icons-vue';
   import { useModal } from 'ele-admin-plus';
   import { APP_PORTAL } from '@portal';
   import {

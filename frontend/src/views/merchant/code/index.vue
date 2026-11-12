@@ -83,15 +83,6 @@
         <template #code="{ row }">
           <span class="mono">{{ row.code }}</span>
         </template>
-        <template #codeType="{ row }">
-          <el-tag
-            :type="getOptionType(codeTypeOptions, row.codeType)"
-            effect="plain"
-            size="small"
-          >
-            {{ getOptionLabel(codeTypeOptions, row.codeType) }}
-          </el-tag>
-        </template>
         <template #status="{ row }">
           <el-tag
             :type="getOptionType(codeStatusOptions, row.effectiveStatus)"
@@ -103,7 +94,7 @@
         </template>
         <template #metrics="{ row }">
           <span class="muted-text">
-            访问 {{ row.visitCount }} · 首访 {{ row.firstPassCount }} · 回访
+            访问 {{ row.visitCount }} 人 · 首访 {{ row.firstPassCount }} · 回访
             {{ row.returnCount }} · 转化 {{ row.conversionCount }}
           </span>
         </template>
@@ -158,7 +149,6 @@
   } from '@/api/merchant/code';
   import CodeSearch from './components/code-search.vue';
   import {
-    codeTypeOptions,
     codeStatusOptions,
     getOptionLabel,
     getOptionType
@@ -187,7 +177,7 @@
   const summaryItems = computed(() => [
     {
       key: '',
-      label: '全部码',
+      label: '全部归因码',
       value: stats.value.total,
       desc: `商户额度 ${stats.value.used} / ${stats.value.quota}`,
       type: 'primary'
@@ -230,14 +220,6 @@
       minWidth: 150,
       slot: 'code',
       formatter: (row) => row.code
-    },
-    {
-      prop: 'codeType',
-      label: '类型',
-      width: 90,
-      align: 'center',
-      slot: 'codeType',
-      formatter: (row) => getOptionLabel(codeTypeOptions, row.codeType)
     },
     {
       prop: 'name',
@@ -389,7 +371,7 @@
   const handleStatus = (row) => {
     const next = row.status === 'enabled' ? 'disabled' : 'enabled';
     ElMessageBox.confirm(
-      `是否确认${next === 'enabled' ? '启用' : '停用'}码「${row.code}」？`,
+      `是否确认${next === 'enabled' ? '启用' : '停用'}归因码「${row.code}」？`,
       '系统提示',
       { type: 'warning', draggable: true }
     )
@@ -400,7 +382,7 @@
   const handleBatchStatus = (status) => {
     const ids = selections.value.map((r) => r.codeId);
     ElMessageBox.confirm(
-      `是否确认${status === 'enabled' ? '启用' : '停用'}选中的 ${ids.length} 个码？`,
+      `是否确认${status === 'enabled' ? '启用' : '停用'}选中的 ${ids.length} 个归因码？`,
       '系统提示',
       { type: 'warning', draggable: true }
     )
@@ -411,7 +393,7 @@
   const handleBatchRemove = () => {
     const ids = selections.value.map((r) => r.codeId);
     ElMessageBox.confirm(
-      `删除后不可恢复，是否确认删除选中的 ${ids.length} 个码？`,
+      `删除后不可恢复，是否确认删除选中的 ${ids.length} 个归因码？`,
       '系统提示',
       { type: 'warning', draggable: true }
     )

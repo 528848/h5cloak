@@ -1,9 +1,9 @@
-<!-- 文本 / CSV 导入分销码 -->
+<!-- 文本 / CSV 导入归因码 -->
 <template>
   <ele-modal
     :form="true"
     :width="640"
-    title="导入分销码"
+    title="导入归因码"
     :loading="loading"
     v-bind="modalProps"
   >
@@ -29,19 +29,6 @@
                 :value="s.siteId"
               />
             </el-select>
-          </el-form-item>
-        </el-col>
-        <el-col :span="12">
-          <el-form-item label="类型">
-            <el-radio-group v-model="form.codeType">
-              <el-radio
-                v-for="o in codeTypeOptions"
-                :key="o.value"
-                :value="o.value"
-              >
-                {{ o.label }}
-              </el-radio>
-            </el-radio-group>
           </el-form-item>
         </el-col>
       </el-row>
@@ -114,7 +101,6 @@ BOB02,Bob"
   import { EleMessage, useModal } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
   import { importCodes } from '@/api/merchant/code';
-  import { codeTypeOptions } from '../constants';
 
   const props = defineProps({
     siteId: Number,

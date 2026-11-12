@@ -132,23 +132,56 @@ func (h *opsHandler) createExport(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	response.Success(c, out, "已加入导出队列")
+	response.Success(c, out, "已加入下载中心")
 }
 
 func (h *opsHandler) exports(c *gin.Context) {
-	rows, total, err := h.svc.Exports(c.Request.Context(), merchantID(c), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 20))
+	rows, total, err := h.svc.Exports(c.Request.Context(), merchantID(c), c.Query("kind"), c.Query("status"), c.Query("from"), c.Query("to"), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 20))
 	if err != nil {
 		writeErr(c, err)
 		return
 	}
-	// 附带签名下载链接
 	for _, r := range rows {
-		if r["status"] == ops.ExportDone {
+		if r["status"] == ops.ExportDone && r["expired"] != true {
 			id, _ := r["id"].(uint64)
 			r["downloadToken"] = h.svc.DownloadToken(id, time.Now().Add(24*time.Hour), h.secret)
 		}
 	}
 	response.Page(c, rows, total)
+}
+
+func (h *opsHandler) exportStats(c *gin.Context) {
+	row, err := h.svc.ExportStats(c.Request.Context(), merchantID(c))
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, row, "查询成功")
+}
+
+func (h *opsHandler) retryExport(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	out, err := h.svc.RetryExport(c.Request.Context(), merchantID(c), middleware.User(c).ID, id)
+	if err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, out, "已重新加入下载中心")
+}
+
+func (h *opsHandler) cancelExport(c *gin.Context) {
+	id, ok := pathID(c)
+	if !ok {
+		return
+	}
+	if err := h.svc.CancelExport(c.Request.Context(), merchantID(c), id); err != nil {
+		writeErr(c, err)
+		return
+	}
+	response.Success(c, nil, "已取消")
 }
 
 // GET /merchant/export/:id/link

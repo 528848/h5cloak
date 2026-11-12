@@ -3,9 +3,11 @@ package probe
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -46,18 +48,43 @@ func ContainsTXT(records []string, expect string) bool {
 	return false
 }
 
+// NormalizeHost 从回源 Host 里取出主机名。允许误填成 https://host/。
+func NormalizeHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		if u, err := url.Parse(raw); err == nil && u.Host != "" {
+			raw = u.Host
+		}
+	}
+	if i := strings.IndexByte(raw, '/'); i >= 0 {
+		raw = raw[:i]
+	}
+	if h, _, err := net.SplitHostPort(raw); err == nil {
+		raw = h
+	}
+	return strings.TrimSuffix(strings.TrimSpace(raw), ".")
+}
+
 // Origin 对源站发 HEAD，失败再 GET，2xx/3xx 视为健康。
-func Origin(ctx context.Context, rawURL string, timeout time.Duration) (bool, string) {
+// hostHeader 非空且是域名时，同时作为 HTTP Host 和 TLS 服务器名，以便沿用该名字上已有的证书。
+func Origin(ctx context.Context, rawURL, hostHeader string, timeout time.Duration) (bool, string) {
 	if timeout <= 0 {
 		timeout = 8 * time.Second
 	}
-	client := &http.Client{Timeout: timeout, CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+	host := NormalizeHost(hostHeader)
+	client := &http.Client{Timeout: timeout, Transport: RoundTripper(rawURL, host), CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}}
 	for _, method := range []string{http.MethodHead, http.MethodGet} {
 		req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
 		if err != nil {
 			return false, err.Error()
+		}
+		if host != "" {
+			req.Host = host
 		}
 		req.Header.Set("User-Agent", "CloakHealth/2")
 		resp, err := client.Do(req)
@@ -76,6 +103,20 @@ func Origin(ctx context.Context, rawURL string, timeout time.Duration) (bool, st
 		}
 	}
 	return false, "无响应"
+}
+
+// RoundTripper 回源 Host 与 URL 主机不同时，用回源 Host 校验证书。
+func RoundTripper(rawURL, host string) http.RoundTripper {
+	if host == "" || net.ParseIP(host) != nil {
+		return http.DefaultTransport
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || strings.EqualFold(u.Hostname(), host) {
+		return http.DefaultTransport
+	}
+	return &http.Transport{
+		TLSClientConfig: &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}, //nolint:gosec
+	}
 }
 
 func normalizeHost(h string) string {

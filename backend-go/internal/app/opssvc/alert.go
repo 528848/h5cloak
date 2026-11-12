@@ -12,6 +12,7 @@ import (
 
 	"cloak/internal/adapter/mysql"
 	"cloak/internal/domain/ops"
+	"cloak/internal/pkg/notifier"
 )
 
 // RuleDefault 每种告警类型的默认值与说明。
@@ -572,7 +573,7 @@ func (s *Service) notify(ctx context.Context, a *ops.Alert, channels []string, r
 		title = "已恢复：" + a.Title
 		kind = "alert_resolved"
 	}
-	link := strings.TrimRight(s.cfg.ConsoleURL, "/") + "/merchant/alert?id=" + strconv.FormatUint(a.ID, 10)
+	link := strings.TrimRight(s.cfg.ConsoleURL, "/") + "/merchant/alert/list?id=" + strconv.FormatUint(a.ID, 10)
 	for _, ch := range channels {
 		if !allowed[ch] {
 			results[ch+suffix] = "skipped:disabled"
@@ -603,14 +604,6 @@ func (s *Service) notify(ctx context.Context, a *ops.Alert, channels []string, r
 			html := fmt.Sprintf(`<h3>%s</h3><p>%s</p><p>级别：%s<br>时间：%s</p><p><a href="%s">查看详情</a></p>`, esc(title), esc(a.Message), a.Severity, a.FiredAt.Format(layout), link)
 			err = s.mailer.Send(ctx, emails, "[斗篷告警] "+title, text, html)
 		case ops.ChannelTelegram:
-			if !s.telegram.Configured() {
-				results[ch+suffix] = "skipped:not_configured"
-				continue
-			}
-			if settings.TelegramChatID == "" {
-				results[ch+suffix] = "skipped:no_chat_id"
-				continue
-			}
 			icon := "⚠️"
 			if a.Severity == "critical" {
 				icon = "🔴"
@@ -618,7 +611,23 @@ func (s *Service) notify(ctx context.Context, a *ops.Alert, channels []string, r
 			if resolvedEvent {
 				icon = "✅"
 			}
-			err = s.telegram.Send(ctx, settings.TelegramChatID, fmt.Sprintf("%s <b>%s</b>\n%s\n<a href=\"%s\">查看详情</a>", icon, esc(title), esc(a.Message), link))
+			text := fmt.Sprintf("%s <b>%s</b>\n%s\n<a href=\"%s\">查看详情</a>", icon, esc(title), esc(a.Message), link)
+			// 商户配了自己的机器人：从自有 Bot 发给所有绑定会话；否则回退平台 Bot + Chat ID
+			if handled, status, e := s.sendMerchantTelegram(ctx, a.MerchantID, text); handled {
+				if status != "" {
+					results[ch+suffix] = status
+					continue
+				}
+				err = e
+			} else if !s.telegram.Configured() {
+				results[ch+suffix] = "skipped:not_configured"
+				continue
+			} else if settings.TelegramChatID == "" {
+				results[ch+suffix] = "skipped:no_chat_id"
+				continue
+			} else {
+				err = s.telegram.Send(ctx, settings.TelegramChatID, text)
+			}
 		case ops.ChannelWebhook:
 			event := a.Type
 			if resolvedEvent {
@@ -646,6 +655,35 @@ func (s *Service) notify(ctx context.Context, a *ops.Alert, channels []string, r
 	}
 	a.Notified, _ = json.Marshal(results)
 	_ = s.repo.UpdateAlert(ctx, a, "Notified")
+}
+
+// sendMerchantTelegram 用商户自有 Bot 向其全部启用会话发送。
+// 返回 handled=true 表示该商户配了自有机器人（无论发送成功与否，都不再回退平台 Bot）。
+// status 非空时表示跳过原因（如没有绑定会话）。
+func (s *Service) sendMerchantTelegram(ctx context.Context, merchantID uint64, html string) (handled bool, status string, err error) {
+	if s.box == nil {
+		return false, "", nil
+	}
+	bot, e := s.repo.GetTelegramBot(ctx, merchantID)
+	if e != nil || bot == nil || bot.Status != ops.TelegramBotActive || len(bot.BotTokenEnc) == 0 {
+		return false, "", nil
+	}
+	tok, e := s.box.Open(bot.BotTokenEnc)
+	if e != nil {
+		return true, "", e
+	}
+	chats, _ := s.repo.ActiveTelegramChats(ctx, merchantID)
+	if len(chats) == 0 {
+		return true, "skipped:no_chat", nil
+	}
+	tg := notifier.NewTelegramWithToken(s.cfg.Telegram.APIBase, string(tok))
+	var firstErr error
+	for _, c := range chats {
+		if e := tg.Send(ctx, c.ChatID, html); e != nil && firstErr == nil {
+			firstErr = e
+		}
+	}
+	return true, "", firstErr
 }
 
 func nonEmpty(b []byte) []byte {
@@ -736,11 +774,17 @@ func (s *Service) TestChannel(ctx context.Context, merchantID uint64, channel st
 		}
 		return s.mailer.Send(ctx, emails, "[斗篷] 测试通知", msg, "<p>"+msg+"</p>")
 	case ops.ChannelTelegram:
+		if handled, status, e := s.sendMerchantTelegram(ctx, merchantID, "✅ "+msg); handled {
+			if status == "skipped:no_chat" {
+				return errf(400, "请先在 Telegram 配置页绑定接收会话")
+			}
+			return e
+		}
 		if !s.telegram.Configured() {
-			return errf(400, "平台尚未配置 Telegram Bot")
+			return errf(400, "平台尚未配置 Telegram Bot，或请改用你自己的机器人")
 		}
 		if settings.TelegramChatID == "" {
-			return errf(400, "请先保存 Chat ID")
+			return errf(400, "请先保存 Chat ID，或配置你自己的机器人")
 		}
 		return s.telegram.Send(ctx, settings.TelegramChatID, "✅ "+msg)
 	case ops.ChannelInApp:

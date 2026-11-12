@@ -28,4 +28,4 @@ export const TOKEN_HEADER_NAME = 'Authorization';
 export const I18N_CACHE_NAME = 'i18n-lang';
 
 /** 页签最大打开数量 */
-export const TAB_MAX_NUM = 10;
+export const TAB_MAX_NUM = 20;

@@ -22,6 +22,7 @@ import (
 	"cloak/internal/auth"
 	"cloak/internal/domain/identity"
 	domainsite "cloak/internal/domain/site"
+	"cloak/internal/engine/pathrule"
 	"cloak/internal/pkg/probe"
 	"cloak/internal/pkg/secretbox"
 )
@@ -136,7 +137,7 @@ func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (
 		TokenKeyVersion: 1, TokenKeys: keys, SecretEnc: s.seal(sk),
 	}
 	review := &domainsite.ReviewContent{Source: domainsite.ReviewTemplate, TemplateVars: []byte(`{"siteName":"","slogan":""}`)}
-	if err := s.repo.CreateSite(ctx, site, domainsite.DefaultPathRules(), review); err != nil {
+	if err := s.repo.CreateSite(ctx, site, omitPlatformStatic(domainsite.DefaultPathRules()), review); err != nil {
 		return nil, "", err
 	}
 	row, err := s.detail(ctx, site)
@@ -218,8 +219,8 @@ func (s *Service) Get(ctx context.Context, merchantID, id uint64) (map[string]an
 	return s.detail(ctx, site)
 }
 
-func (s *Service) List(ctx context.Context, merchantID uint64, keyword, status string, page, size int) ([]map[string]any, int64, error) {
-	rows, total, err := s.repo.ListSites(ctx, merchantID, keyword, status, page, size)
+func (s *Service) List(ctx context.Context, merchantID uint64, keyword, status, siteType string, page, size int) ([]map[string]any, int64, error) {
+	rows, total, err := s.repo.ListSites(ctx, merchantID, keyword, status, siteType, page, size)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -230,6 +231,7 @@ func (s *Service) List(ctx context.Context, merchantID uint64, keyword, status s
 		mids = append(mids, rows[i].MerchantID)
 	}
 	counters, _ := s.repo.SiteCounters(ctx, ids)
+	origins, _ := s.repo.OriginURLs(ctx, ids)
 	names := map[uint64]string{}
 	if merchantID == 0 {
 		names, _ = s.repo.MerchantNames(ctx, mids)
@@ -243,6 +245,10 @@ func (s *Service) List(ctx context.Context, merchantID uint64, keyword, status s
 		}
 		row["domainCount"], row["boundDomainCount"] = c.Domains, c.BoundDomains
 		row["originCount"], row["unhealthyOriginCount"] = c.Origins, c.Unhealthy
+		if u := origins[rows[i].ID]; u != nil {
+			row["realUrl"] = u["real"]
+			row["reviewUrl"] = u["review"]
+		}
 		if merchantID == 0 {
 			row["merchantName"] = names[rows[i].MerchantID]
 		}
@@ -376,6 +382,7 @@ func (s *Service) SaveOrigin(ctx context.Context, merchantID, siteID uint64, in 
 	if !strings.HasPrefix(in.URL, "http://") && !strings.HasPrefix(in.URL, "https://") {
 		return errf(400, "源站地址须以 http:// 或 https:// 开头")
 	}
+	in.HostHeader = probe.NormalizeHost(in.HostHeader)
 	if in.TimeoutMs <= 0 {
 		in.TimeoutMs = 15000
 	}
@@ -410,7 +417,7 @@ func (s *Service) probeKind(ctx context.Context, siteID uint64, kind string) (ma
 	if target == nil {
 		return nil, errf(404, "尚未配置该源站")
 	}
-	ok, msg := probe.Origin(ctx, target.URL, time.Duration(target.TimeoutMs)*time.Millisecond)
+	ok, msg := probe.Origin(ctx, target.URL, deref(target.HostHeader), time.Duration(target.TimeoutMs)*time.Millisecond)
 	status := domainsite.HealthUnhealthy
 	if ok {
 		status = domainsite.HealthHealthy
@@ -429,7 +436,7 @@ func (s *Service) ProbeDue(ctx context.Context, limitN int) {
 		return
 	}
 	for i := range rows {
-		ok, msg := probe.Origin(ctx, rows[i].URL, 8*time.Second)
+		ok, msg := probe.Origin(ctx, rows[i].URL, deref(rows[i].HostHeader), 8*time.Second)
 		status := domainsite.HealthUnhealthy
 		if ok {
 			status = domainsite.HealthHealthy
@@ -487,7 +494,17 @@ func (s *Service) Templates(ctx context.Context) ([]map[string]any, error) {
 	}
 	out := make([]map[string]any, 0, len(rows))
 	for _, t := range rows {
-		out = append(out, map[string]any{"templateId": t.ID, "code": t.Code, "name": t.Name, "description": deref(t.Description)})
+		if t.Status == "disabled" {
+			continue
+		}
+		kind := t.Kind
+		if kind == "" {
+			kind = "html"
+		}
+		out = append(out, map[string]any{
+			"templateId": t.ID, "code": t.Code, "name": t.Name, "description": deref(t.Description),
+			"kind": kind, "status": t.Status,
+		})
 	}
 	return out, nil
 }
@@ -496,6 +513,9 @@ func (s *Service) PreviewTemplate(ctx context.Context, id uint64, vars map[strin
 	t, err := s.repo.FindTemplate(ctx, id)
 	if err != nil {
 		return "", errf(404, "模板不存在")
+	}
+	if t.Kind != "" && t.Kind != "html" {
+		return "", errf(400, "只有 HTML 模板可以预览正文")
 	}
 	tpl, err := template.New("review").Parse(t.HTML)
 	if err != nil {
@@ -583,10 +603,23 @@ func (s *Service) UploadPackage(ctx context.Context, merchantID, siteID uint64, 
 	}, nil
 }
 
+// omitPlatformStatic 去掉平台静态资源规则。这类规则由网关统一执行，不进站点配置。
+func omitPlatformStatic(rules []domainsite.PathRule) []domainsite.PathRule {
+	out := make([]domainsite.PathRule, 0, len(rules))
+	for _, rule := range rules {
+		if pathrule.IsPlatformStatic(rule.Pattern, rule.MatchType, rule.Action) {
+			continue
+		}
+		out = append(out, rule)
+	}
+	return out
+}
+
 func (s *Service) ReplaceRules(ctx context.Context, merchantID, siteID uint64, rules []domainsite.PathRule) error {
 	if _, err := s.owned(ctx, merchantID, siteID); err != nil {
 		return err
 	}
+	rules = omitPlatformStatic(rules)
 	for _, rule := range rules {
 		switch rule.MatchType {
 		case domainsite.MatchPrefix, domainsite.MatchExact, domainsite.MatchSuffix:
@@ -779,24 +812,54 @@ func (s *Service) ListDomains(ctx context.Context, merchantID, siteID uint64, ke
 		mids = append(mids, rows[i].MerchantID)
 	}
 	siteNames, _ := s.repo.SiteNames(ctx, sids)
-	merchantNames := map[uint64]string{}
-	if merchantID == 0 {
-		merchantNames, _ = s.repo.MerchantNames(ctx, mids)
-	}
+	merchantNames, _ := s.repo.MerchantNames(ctx, mids)
 	out := make([]map[string]any, 0, len(rows))
 	for i := range rows {
 		row := domainRow(&rows[i], deref(rows[i].VerifyMessage))
 		row["siteName"] = siteNames[rows[i].SiteID]
-		if merchantID == 0 {
-			row["merchantName"] = merchantNames[rows[i].MerchantID]
-		}
+		row["merchantName"] = merchantNames[rows[i].MerchantID]
 		out = append(out, row)
 	}
 	return out, total, nil
 }
 
-func (s *Service) EntryGuide() map[string]any {
-	return map[string]any{"entryHost": s.entryHost, "txtPrefix": "_cloak"}
+func (s *Service) EntryGuide(ctx context.Context) map[string]any {
+	return map[string]any{
+		"entryHost": s.entryHost,
+		"entryIP":   strings.Join(resolveHostIPv4(ctx, s.entryHost), "、"),
+		"txtPrefix": "_cloak",
+	}
+}
+
+// resolveHostIPv4 把网关入口域名解析成 IPv4。已经是 IP 时原样返回。
+func resolveHostIPv4(ctx context.Context, host string) []string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if v4 := ip.To4(); v4 != nil {
+			return []string{v4.String()}
+		}
+		return []string{ip.String()}
+	}
+	c, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	ips, err := net.DefaultResolver.LookupIP(c, "ip4", host)
+	if err != nil || len(ips) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(ips))
+	seen := map[string]struct{}{}
+	for _, ip := range ips {
+		s := ip.String()
+		if _, ok := seen[s]; ok {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return out
 }
 
 func (s *Service) owned(ctx context.Context, merchantID, id uint64) (*domainsite.Site, error) {
@@ -832,6 +895,9 @@ func (s *Service) detail(ctx context.Context, site *domainsite.Site) (map[string
 	rules, _ := s.repo.ListPathRules(ctx, site.ID)
 	rs := []map[string]any{}
 	for _, rule := range rules {
+		if pathrule.IsPlatformStatic(rule.Pattern, rule.MatchType, rule.Action) {
+			continue
+		}
 		rs = append(rs, map[string]any{"pattern": rule.Pattern, "matchType": rule.MatchType, "action": rule.Action, "sort": rule.Sort, "remark": deref(rule.Remark)})
 	}
 	row["pathRules"] = rs

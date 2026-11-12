@@ -15,8 +15,12 @@ export async function listNodes() {
   return (await ok(await request.get('/admin/system/nodes'))).data;
 }
 
-export async function listTemplates() {
-  return (await ok(await request.get('/admin/template/list'))).data;
+export async function listTemplates(params) {
+  return ok(await request.get('/admin/template/list', { params }));
+}
+
+export async function getTemplateStats() {
+  return (await ok(await request.get('/admin/template/stats'))).data;
 }
 
 export async function getTemplate(id) {
@@ -27,11 +31,32 @@ export async function saveTemplate(id, data) {
   const req = id
     ? request.put(`/admin/template/${id}`, data)
     : request.post('/admin/template', data);
-  return (await ok(await req)).data;
+  const body = await ok(await req);
+  return body;
 }
 
 export async function removeTemplate(id) {
   return (await ok(await request.delete(`/admin/template/${id}`))).msg;
+}
+
+export async function updateTemplateStatus(id, status) {
+  return (await ok(await request.put(`/admin/template/${id}/status`, { status }))).msg;
+}
+
+export async function uploadTemplatePackage(id, file, entry, spaFallback) {
+  const data = new FormData();
+  data.append('file', file);
+  if (entry) data.append('entry', entry);
+  data.append('spaFallback', spaFallback ? 'true' : 'false');
+  return (await ok(await request.post(`/admin/template/${id}/package`, data))).data;
+}
+
+export async function rollbackTemplate(id, version) {
+  return (await ok(await request.post(`/admin/template/${id}/rollback`, { version }))).msg;
+}
+
+export async function previewTemplate(id, data) {
+  return (await ok(await request.post(`/admin/template/${id}/preview`, data || {}))).data;
 }
 
 export async function pagePlatformCodes(params) {

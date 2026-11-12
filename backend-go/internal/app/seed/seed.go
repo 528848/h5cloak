@@ -34,6 +34,12 @@ func Run(ctx context.Context, db *gorm.DB, opt Options) error {
 		if err != nil {
 			return err
 		}
+		if err := backfillAlertChildren(tx, menus); err != nil {
+			return err
+		}
+		if err := ensureDevCenterParent(tx, menus); err != nil {
+			return err
+		}
 		if err := bindRoleMenus(tx, roles, menus); err != nil {
 			return err
 		}
@@ -112,8 +118,8 @@ func menuDefs() []menuDef {
 		{Key: "a.decisionLog", Portal: admin, Name: "决策日志", Path: "/admin/decision-log", Component: "admin/decision-log", Type: "C", Perms: "log:decision:list", Icon: "log", Sort: 45, Visible: true, Roles: ops},
 		{Key: "a.apiLog", Portal: admin, Name: "API 调用日志", Path: "/admin/api-log", Component: "admin/api-log", Type: "C", Perms: "cloak:apiLog:list", Icon: "log", Sort: 60, Visible: true, Roles: ops},
 		{Key: "a.merchant.impersonate", Parent: "a.merchant", Portal: admin, Name: "模拟登录", Type: "F", Perms: "merchant:account:impersonate", Roles: ops},
-		{Key: "a.code", Portal: admin, Name: "全平台分销码", Path: "/admin/code", Component: "admin/code", Type: "C", Perms: "platform:code:list", Icon: "dict", Sort: 32, Visible: true, Roles: ops},
-		{Key: "a.code.status", Parent: "a.code", Portal: admin, Name: "分销码状态", Type: "F", Perms: "platform:code:status", Roles: ops},
+		{Key: "a.code", Portal: admin, Name: "全平台归因码", Path: "/admin/code", Component: "admin/code", Type: "C", Perms: "platform:code:list", Icon: "dict", Sort: 32, Visible: true, Roles: ops},
+		{Key: "a.code.status", Parent: "a.code", Portal: admin, Name: "归因码状态", Type: "F", Perms: "platform:code:status", Roles: ops},
 		{Key: "a.system", Portal: admin, Name: "系统配置", Path: "/admin/system", Component: "admin/system", Type: "C", Perms: "system:config:view", Icon: "system", Sort: 70, Visible: true, Roles: ops},
 		{Key: "a.system.edit", Parent: "a.system", Portal: admin, Name: "修改系统配置", Type: "F", Perms: "system:config:edit"},
 		{Key: "a.template", Portal: admin, Name: "默认模板", Path: "/admin/template", Component: "admin/template", Type: "C", Perms: "system:template:list", Icon: "dict", Sort: 72, Visible: true, Roles: ops},
@@ -127,49 +133,65 @@ func menuDefs() []menuDef {
 		{Key: "a.menu.edit", Parent: "a.menu", Portal: admin, Name: "菜单维护", Type: "F", Perms: "system:menu:edit"},
 
 		// 商户端
-		{Key: "m.dashboard", Portal: merchant, Name: "商户首页", Path: "/merchant/dashboard", Component: "merchant/dashboard", Type: "C", Perms: "merchant:dashboard:view", Icon: "dashboard", Sort: 110, Visible: true, Roles: allMerchant},
+		{Key: "m.dashboard", Portal: merchant, Name: "数据看板", Path: "/merchant/dashboard", Component: "merchant/dashboard", Type: "C", Perms: "merchant:dashboard:view", Icon: "dashboard", Sort: 110, Visible: true, Roles: allMerchant},
 		{Key: "m.site", Portal: merchant, Name: "站点管理", Path: "/merchant/site", Component: "merchant/site", Type: "C", Perms: "site:site:list", Icon: "system", Sort: 115, Visible: true, Roles: allMerchant},
 		{Key: "m.site.add", Parent: "m.site", Portal: merchant, Name: "站点新增", Type: "F", Perms: "site:site:add", Roles: writers},
 		{Key: "m.site.edit", Parent: "m.site", Portal: merchant, Name: "站点编辑", Type: "F", Perms: "site:site:edit", Roles: writers},
 		{Key: "m.site.remove", Parent: "m.site", Portal: merchant, Name: "站点删除", Type: "F", Perms: "site:site:remove", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.site.status", Parent: "m.site", Portal: merchant, Name: "站点状态", Type: "F", Perms: "site:site:status", Roles: writers},
 		{Key: "m.site.secret", Parent: "m.site", Portal: merchant, Name: "重置密钥", Type: "F", Perms: "site:site:secret", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.cloak", Portal: merchant, Name: "斗篷列表", Path: "/merchant/cloak", Component: "merchant/cloak", Type: "C", Perms: "cloak:cloak:list", Icon: "system", Sort: 116, Visible: true, Roles: allMerchant},
+		{Key: "m.cloak.add", Parent: "m.cloak", Portal: merchant, Name: "斗篷新增", Type: "F", Perms: "cloak:cloak:add", Roles: writers},
+		{Key: "m.cloak.edit", Parent: "m.cloak", Portal: merchant, Name: "斗篷编辑", Type: "F", Perms: "cloak:cloak:edit", Roles: writers},
+		{Key: "m.cloak.copy", Parent: "m.cloak", Portal: merchant, Name: "斗篷复制", Type: "F", Perms: "cloak:cloak:copy", Roles: writers},
+		{Key: "m.cloak.status", Parent: "m.cloak", Portal: merchant, Name: "斗篷状态", Type: "F", Perms: "cloak:cloak:status", Roles: writers},
+		{Key: "m.cloak.remove", Parent: "m.cloak", Portal: merchant, Name: "斗篷删除", Type: "F", Perms: "cloak:cloak:remove", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.domain", Portal: merchant, Name: "域名列表", Path: "/merchant/domain", Component: "merchant/domain", Type: "C", Perms: "site:domain:list", Icon: "tree", Sort: 120, Visible: true, Roles: allMerchant},
 		{Key: "m.domain.add", Parent: "m.domain", Portal: merchant, Name: "域名新增", Type: "F", Perms: "site:domain:add", Roles: writers},
 		{Key: "m.domain.verify", Parent: "m.domain", Portal: merchant, Name: "域名校验", Type: "F", Perms: "site:domain:verify", Roles: writers},
 		{Key: "m.domain.remove", Parent: "m.domain", Portal: merchant, Name: "域名删除", Type: "F", Perms: "site:domain:remove", Roles: writers},
 		{Key: "m.attribution", Portal: merchant, Name: "归因规则", Path: "/merchant/attribution", Component: "merchant/attribution", Type: "C", Perms: "attribution:rule:list", Icon: "edit", Sort: 122, Visible: true, Roles: allMerchant},
 		{Key: "m.attribution.edit", Parent: "m.attribution", Portal: merchant, Name: "规则编辑", Type: "F", Perms: "attribution:rule:edit", Roles: writers},
-		{Key: "m.code", Portal: merchant, Name: "分销码", Path: "/merchant/code", Component: "merchant/code", Type: "C", Perms: "attribution:code:list", Icon: "number", Sort: 124, Visible: true, Roles: allMerchant},
-		{Key: "m.code.add", Parent: "m.code", Portal: merchant, Name: "分销码登记", Type: "F", Perms: "attribution:code:add", Roles: writers},
-		{Key: "m.code.edit", Parent: "m.code", Portal: merchant, Name: "分销码编辑", Type: "F", Perms: "attribution:code:edit", Roles: writers},
-		{Key: "m.code.status", Parent: "m.code", Portal: merchant, Name: "分销码状态", Type: "F", Perms: "attribution:code:status", Roles: writers},
-		{Key: "m.code.remove", Parent: "m.code", Portal: merchant, Name: "分销码删除", Type: "F", Perms: "attribution:code:remove", Roles: writers},
-		{Key: "m.code.export", Parent: "m.code", Portal: merchant, Name: "分销码导出", Type: "F", Perms: "attribution:code:export", Roles: allMerchant},
-		{Key: "m.decisionTest", Portal: merchant, Name: "判定测试", Path: "/merchant/decision-test", Component: "merchant/decision-test", Type: "C", Perms: "attribution:test:run", Icon: "search", Sort: 128, Visible: true, Roles: allMerchant},
+		{Key: "m.code", Portal: merchant, Name: "归因码", Path: "/merchant/code", Component: "merchant/code", Type: "C", Perms: "attribution:code:list", Icon: "number", Sort: 124, Visible: true, Roles: allMerchant},
+		{Key: "m.code.add", Parent: "m.code", Portal: merchant, Name: "归因码登记", Type: "F", Perms: "attribution:code:add", Roles: writers},
+		{Key: "m.code.edit", Parent: "m.code", Portal: merchant, Name: "归因码编辑", Type: "F", Perms: "attribution:code:edit", Roles: writers},
+		{Key: "m.code.status", Parent: "m.code", Portal: merchant, Name: "归因码状态", Type: "F", Perms: "attribution:code:status", Roles: writers},
+		{Key: "m.code.remove", Parent: "m.code", Portal: merchant, Name: "归因码删除", Type: "F", Perms: "attribution:code:remove", Roles: writers},
+		{Key: "m.code.export", Parent: "m.code", Portal: merchant, Name: "归因码导出", Type: "F", Perms: "attribution:code:export", Roles: allMerchant},
+		{Key: "m.dev", Portal: merchant, Name: "开发者中心", Path: "/merchant/dev", Component: "Layout", Type: "M", Perms: "dev:center:view", Icon: "code", Sort: 160, Visible: true, Roles: allMerchant},
+		{Key: "m.decisionTest", Parent: "m.dev", Portal: merchant, Name: "判定测试", Path: "/merchant/decision-test", Component: "merchant/decision-test", Type: "C", Perms: "attribution:test:run", Icon: "search", Sort: 2, Visible: true, Roles: allMerchant},
 		{Key: "m.decisionLog", Portal: merchant, Name: "决策日志", Path: "/merchant/decision-log", Component: "merchant/decision-log", Type: "C", Perms: "log:decision:list", Icon: "log", Sort: 127, Visible: true, Roles: allMerchant},
-		{Key: "m.apiGuide", Portal: merchant, Name: "接入指南", Path: "/merchant/api-guide", Component: "merchant/api-guide", Type: "C", Perms: "site:site:list", Icon: "guide", Sort: 129, Visible: true, Roles: allMerchant},
+		{Key: "m.apiGuide", Parent: "m.dev", Portal: merchant, Name: "接入指南", Path: "/merchant/api-guide", Component: "merchant/api-guide", Type: "C", Perms: "site:site:list", Icon: "guide", Sort: 3, Visible: true, Roles: allMerchant},
+		{Key: "m.apiDoc", Parent: "m.dev", Portal: merchant, Name: "接入文档", Path: "/merchant/api-key/guide", Component: "merchant/api-key/guide", Type: "C", Perms: "site:site:list", Icon: "guide", Sort: 4, Visible: true, Roles: allMerchant},
 		{Key: "m.report", Portal: merchant, Name: "报表", Path: "/merchant/report", Component: "merchant/report", Type: "C", Perms: "report:view", Icon: "chart", Sort: 112, Visible: true, Roles: allMerchant},
 		{Key: "m.report.export", Parent: "m.report", Portal: merchant, Name: "报表导出", Type: "F", Perms: "report:export", Roles: writers},
-		{Key: "m.alert", Portal: merchant, Name: "告警与通知", Path: "/merchant/alert", Component: "merchant/alert", Type: "C", Perms: "alert:view", Icon: "message", Sort: 113, Visible: true, Roles: allMerchant},
+		{Key: "m.download", Portal: merchant, Name: "下载中心", Path: "/merchant/download", Component: "merchant/download", Type: "C", Perms: "report:view", Icon: "download", Sort: 111, Visible: false, Roles: allMerchant},
+		{Key: "m.alert", Portal: merchant, Name: "告警通知", Path: "/merchant/alert", Component: "Layout", Type: "M", Perms: "alert:view", Icon: "message", Sort: 113, Visible: true, Roles: allMerchant},
+		{Key: "m.alert.list", Parent: "m.alert", Portal: merchant, Name: "告警", Path: "/merchant/alert/list", Component: "merchant/alert", Type: "C", Perms: "alert:view", Icon: "message", Sort: 1, Visible: true, Roles: allMerchant},
+		{Key: "m.alert.rules", Parent: "m.alert", Portal: merchant, Name: "规则", Path: "/merchant/alert/rules", Component: "merchant/alert/rules", Type: "C", Perms: "alert:view", Icon: "edit", Sort: 2, Visible: true, Roles: allMerchant},
+		{Key: "m.alert.settings", Parent: "m.alert", Portal: merchant, Name: "通知设置", Path: "/merchant/alert/settings", Component: "merchant/alert/settings", Type: "C", Perms: "alert:view", Icon: "form", Sort: 3, Visible: true, Roles: allMerchant},
 		{Key: "m.alert.edit", Parent: "m.alert", Portal: merchant, Name: "告警配置", Type: "F", Perms: "alert:edit", Roles: writers},
-		{Key: "m.webhook", Portal: merchant, Name: "Webhook", Path: "/merchant/webhook", Component: "merchant/webhook", Type: "C", Perms: "webhook:view", Icon: "link", Sort: 114, Visible: true, Roles: allMerchant},
+		{Key: "m.webhook", Parent: "m.dev", Portal: merchant, Name: "Webhook", Path: "/merchant/webhook", Component: "merchant/webhook", Type: "C", Perms: "webhook:view", Icon: "link", Sort: 1, Visible: true, Roles: allMerchant},
 		{Key: "m.webhook.edit", Parent: "m.webhook", Portal: merchant, Name: "Webhook 配置", Type: "F", Perms: "webhook:edit", Roles: writers},
 		{Key: "m.link", Portal: merchant, Name: "链接生成器", Path: "/merchant/link", Component: "merchant/link", Type: "C", Perms: "attribution:link:build", Icon: "link", Sort: 126, Visible: true, Roles: allMerchant},
-		{Key: "m.apiLog", Portal: merchant, Name: "API 调用日志", Path: "/merchant/api-log", Component: "merchant/api-log", Type: "C", Perms: "cloak:apiLog:list", Icon: "log", Sort: 170, Visible: true, Roles: allMerchant},
-		{Key: "m.user", Portal: merchant, Name: "账号管理", Path: "/merchant/user", Component: "merchant/user", Type: "C", Perms: "merchant:user:list", Icon: "user", Sort: 900, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.apiLog", Parent: "m.dev", Portal: merchant, Name: "API 调用日志", Path: "/merchant/api-log", Component: "merchant/api-log", Type: "C", Perms: "cloak:apiLog:list", Icon: "log", Sort: 5, Visible: true, Roles: allMerchant},
+		{Key: "m.access", Portal: merchant, Name: "权限管理", Path: "/merchant/access", Component: "Layout", Type: "M", Perms: "merchant:user:list", Icon: "peoples", Sort: 900, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.user", Parent: "m.access", Portal: merchant, Name: "账号管理", Path: "/merchant/user", Component: "merchant/user", Type: "C", Perms: "merchant:user:list", Icon: "user", Sort: 1, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.add", Parent: "m.user", Portal: merchant, Name: "账号新增", Type: "F", Perms: "merchant:user:add", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.edit", Parent: "m.user", Portal: merchant, Name: "账号编辑", Type: "F", Perms: "merchant:user:edit", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.status", Parent: "m.user", Portal: merchant, Name: "账号状态", Type: "F", Perms: "merchant:user:status", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.resetPwd", Parent: "m.user", Portal: merchant, Name: "重置密码", Type: "F", Perms: "merchant:user:resetPwd", Roles: []string{identity.RoleMerchantAdmin}},
 		{Key: "m.user.remove", Parent: "m.user", Portal: merchant, Name: "账号删除", Type: "F", Perms: "merchant:user:remove", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.role", Parent: "m.access", Portal: merchant, Name: "角色管理", Path: "/merchant/role", Component: "merchant/role", Type: "C", Perms: "merchant:role:list", Icon: "peoples", Sort: 2, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.role.edit", Parent: "m.role", Portal: merchant, Name: "角色维护", Type: "F", Perms: "merchant:role:edit", Roles: []string{identity.RoleMerchantAdmin}},
+		{Key: "m.menu", Parent: "m.access", Portal: merchant, Name: "菜单管理", Path: "/merchant/menu", Component: "merchant/menu", Type: "C", Perms: "merchant:menu:list", Icon: "tree", Sort: 3, Visible: true, Roles: []string{identity.RoleMerchantAdmin}},
 	}
 }
 
 // retiredMenuPaths 已下线页面（V1 遗留，前端无对应页面）。seed 时连同其按钮与角色绑定一起删除。
 var retiredMenuPaths = []string{
 	"/admin/cloak", "/admin/cloak-log",
-	"/merchant/cloak", "/merchant/cloak-log", "/merchant/access-list", "/merchant/api-key",
+	"/merchant/cloak-log", "/merchant/access-list", "/merchant/api-key",
 }
 
 func retireMenus(tx *gorm.DB) error {
@@ -244,6 +266,43 @@ func seedMenus(tx *gorm.DB) (map[string]identity.Menu, error) {
 	return saved, nil
 }
 
+// 目录由原来的「告警与通知」页面改成。已有角色只绑了目录，补上三个子页面；子页面已有绑定时不再覆盖。
+func backfillAlertChildren(tx *gorm.DB, menus map[string]identity.Menu) error {
+	parent := menus["m.alert"]
+	for _, key := range []string{"m.alert.list", "m.alert.rules", "m.alert.settings"} {
+		child := menus[key]
+		var n int64
+		if err := tx.Table("role_menus").Where("menu_id = ?", child.ID).Count(&n).Error; err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		if err := tx.Exec(
+			"INSERT IGNORE INTO role_menus (role_id, menu_id) SELECT role_id, ? FROM role_menus WHERE menu_id = ?",
+			child.ID, parent.ID,
+		).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// 这些页面挂到开发者中心之后，已有角色必须同时拥有目录，否则侧边栏不显示。
+func ensureDevCenterParent(tx *gorm.DB, menus map[string]identity.Menu) error {
+	parent := menus["m.dev"]
+	for _, key := range []string{"m.webhook", "m.decisionTest", "m.apiGuide", "m.apiDoc", "m.apiLog"} {
+		child := menus[key]
+		if err := tx.Exec(
+			"INSERT IGNORE INTO role_menus (role_id, menu_id) SELECT role_id, ? FROM role_menus WHERE menu_id = ?",
+			parent.ID, child.ID,
+		).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func bindRoleMenus(tx *gorm.DB, roles map[string]identity.Role, menus map[string]identity.Menu) error {
 	for _, d := range menuDefs() {
 		m := menus[d.Key]
@@ -276,7 +335,7 @@ func seedUsers(tx *gorm.DB, roles map[string]identity.Role, opt Options) error {
 	if err == gorm.ErrRecordNotFound {
 		merchant = identity.Merchant{
 			Name: "演示商户", Status: identity.StatusEnabled, Timezone: "Asia/Shanghai",
-			DecisionQuota: 1_000_000, SiteQuota: 5, DomainQuota: 20, CodeQuota: 1000, UserQuota: 10,
+			DecisionQuota: 1_000_000, SiteQuota: 5, DomainQuota: 20, CodeQuota: 1000, CloakQuota: 20, UserQuota: 10,
 			LogRetentionDays: 90, QuotaPolicy: "alert",
 			Features: []byte(`{"hosted":true,"server_api":true,"js_sdk":true,"conversion":true,"webhook":true,"enhancements":false}`),
 		}

@@ -44,11 +44,22 @@
           </el-form-item>
         </el-col>
         <el-col :sm="12" :xs="24">
-          <el-form-item label="分销码数">
+          <el-form-item label="归因码数">
             <el-input-number
               v-model="form.quota.codeQuota"
               :min="0"
               :max="1000000"
+              controls-position="right"
+              class="ele-fluid"
+            />
+          </el-form-item>
+        </el-col>
+        <el-col :sm="12" :xs="24">
+          <el-form-item label="斗篷数">
+            <el-input-number
+              v-model="form.quota.cloakQuota"
+              :min="1"
+              :max="1000"
               controls-position="right"
               class="ele-fluid"
             />

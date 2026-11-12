@@ -72,6 +72,7 @@ type AttributionWrite struct {
 	Country       string     `json:"cc,omitempty"`
 	DeviceFamily  string     `json:"dev,omitempty"`
 	InAppBrowser  string     `json:"inapp,omitempty"`
+	IPHash        string     `json:"iph,omitempty"`
 }
 
 // APILogEvent 开放接口调用日志。

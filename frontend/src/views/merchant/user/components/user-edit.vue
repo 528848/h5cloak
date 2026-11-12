@@ -40,11 +40,24 @@
         />
       </el-form-item>
       <el-form-item label="角色" prop="roleKey">
-        <el-radio-group v-model="form.roleKey" class="role-group">
-          <el-radio v-for="o in roleOptions" :key="o.value" :value="o.value">
-            {{ o.label }}<em class="role-desc">{{ o.desc }}</em>
-          </el-radio>
-        </el-radio-group>
+        <el-select
+          v-model="form.roleKey"
+          placeholder="请选择角色"
+          class="ele-fluid"
+          filterable
+        >
+          <el-option
+            v-for="o in roles"
+            :key="o.roleKey"
+            :label="o.name"
+            :value="o.roleKey"
+          >
+            <div class="role-option">
+              <span>{{ o.name }}</span>
+              <span class="role-option-desc">{{ roleDesc(o) }}</span>
+            </div>
+          </el-option>
+        </el-select>
       </el-form-item>
       <el-form-item label="邮箱" prop="email">
         <el-input
@@ -86,8 +99,12 @@
   import { ref, reactive, computed } from 'vue';
   import { EleMessage, useModal, emailReg } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
-  import { addMerchantUser, updateMerchantUser } from '@/api/merchant/user';
-  import { roleOptions } from '../constants';
+  import {
+    addMerchantUser,
+    listMerchantRoles,
+    updateMerchantUser
+  } from '@/api/merchant/user';
+  import { roleDesc, roleOptions } from '../constants';
 
   const props = defineProps({ data: Object });
   const emit = defineEmits(['done']);
@@ -95,6 +112,30 @@
   const isEdit = computed(() => !!props.data?.userId);
   const loading = ref(false);
   const formRef = ref(null);
+  const roles = ref([]);
+
+  listMerchantRoles()
+    .then((rows) => {
+      const list = rows || [];
+      const key = props.data?.roleKeys?.[0];
+      if (key && !list.some((r) => r.roleKey === key)) {
+        list.push({
+          roleKey: key,
+          name: props.data?.roleNames?.[0] || key,
+          remark: '该角色已停用'
+        });
+      }
+      roles.value = list;
+    })
+    .catch((e) => {
+      roles.value = roleOptions.map((o) => ({
+        roleKey: o.value,
+        name: o.label,
+        remark: o.desc,
+        builtin: true
+      }));
+      EleMessage.error({ message: e.message, plain: true });
+    });
 
   const [form] = useFormData({
     userName: props.data?.userName ?? '',
@@ -150,15 +191,14 @@
 </script>
 
 <style scoped>
-  .role-group {
+  .role-option {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 4px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    width: 100%;
   }
-  .role-desc {
-    font-style: normal;
-    margin-left: 8px;
+  .role-option-desc {
     font-size: 12px;
     color: var(--el-text-color-secondary);
   }

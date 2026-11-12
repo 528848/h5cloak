@@ -120,7 +120,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted } from 'vue';
+  import { ref, computed, onMounted, onActivated } from 'vue';
   import { useRouter } from 'vue-router';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';
@@ -312,4 +312,14 @@
   };
 
   onMounted(loadStats);
+
+  // 列表被页签缓存，从新建/编辑页返回时不会重新挂载，这里补一次刷新。
+  let skipActivate = true;
+  onActivated(() => {
+    if (skipActivate) {
+      skipActivate = false;
+      return;
+    }
+    reload();
+  });
 </script>

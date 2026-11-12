@@ -17,7 +17,15 @@ type siteHandler struct{ svc *sitesvc.Service }
 
 func (h *siteHandler) list(c *gin.Context) {
 	mid := merchantScope(c)
-	rows, total, err := h.svc.List(c.Request.Context(), mid, c.Query("keyword"), c.Query("status"), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 10))
+	// 总后台可按所属商户筛选；商户端只能看自己的站点
+	if mid == 0 {
+		if q := c.Query("merchantId"); q != "" {
+			if id, err := strconv.ParseUint(q, 10, 64); err == nil {
+				mid = id
+			}
+		}
+	}
+	rows, total, err := h.svc.List(c.Request.Context(), mid, c.Query("keyword"), c.Query("status"), c.Query("siteType"), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 10))
 	if err != nil {
 		writeErr(c, err)
 		return
@@ -252,7 +260,7 @@ func (h *siteHandler) saveRules(c *gin.Context) {
 }
 
 func (h *siteHandler) guide(c *gin.Context) {
-	response.Success(c, h.svc.EntryGuide(), "查询成功")
+	response.Success(c, h.svc.EntryGuide(c.Request.Context()), "查询成功")
 }
 
 func (h *siteHandler) addDomain(c *gin.Context) {
@@ -277,6 +285,10 @@ func (h *siteHandler) listDomains(c *gin.Context) {
 	var mid uint64
 	if u := middleware.User(c); u.MerchantID != nil {
 		mid = *u.MerchantID
+	} else if q := c.Query("merchantId"); q != "" {
+		if id, err := strconv.ParseUint(q, 10, 64); err == nil {
+			mid = id
+		}
 	}
 	siteID, _ := strconv.ParseUint(c.Query("siteId"), 10, 64)
 	rows, total, err := h.svc.ListDomains(c.Request.Context(), mid, siteID, c.Query("keyword"), c.Query("status"), atoi(c.Query("pageNum"), 1), atoi(c.Query("pageSize"), 10))

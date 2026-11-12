@@ -12,12 +12,12 @@ const portals = {
   admin: {
     port: 5173,
     outDir: 'dist/admin',
-    title: '斗篷系统总后台'
+    title: 'H5Cloak 总后台'
   },
   merchant: {
     port: 5174,
     outDir: 'dist/merchant',
-    title: '斗篷系统商户端'
+    title: 'H5Cloak 商户端'
   }
 };
 

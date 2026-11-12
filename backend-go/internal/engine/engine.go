@@ -156,6 +156,13 @@ func (e *Engine) Decide(ctx context.Context, rc *RequestContext) Decision {
 		d.trace("path_rule", rule.Action+" "+rule.Pattern)
 		switch rule.Action {
 		case "bypass":
+			// 平台静态后缀默认放行。没有归因令牌时改跟审核内容走：
+			// 深度代理把 CSS/JS/图片改写到访客域名后，这些请求若落到真实站或客户本站，文件不存在就是 404，页面只剩裸链接。
+			if pathrule.IsPlatformStatic(rule.Pattern, rule.MatchType, rule.Action) && !e.hasVisitor(rc) {
+				d.Content = ContentReview
+				d.trace("path_rule", "static_follow_review "+rule.Pattern)
+				return d
+			}
 			d.Content = ContentBypass
 			return d
 		case "always_real":
@@ -215,6 +222,22 @@ func (e *Engine) Decide(ctx context.Context, rc *RequestContext) Decision {
 	}
 	e.unattributed(rc, &d, res)
 	return d
+}
+
+// Unmetered 平台静态资源不占判定额度。无归因时内容虽改为审核，额度仍不记。
+func (d Decision) Unmetered() bool {
+	if d.Content == ContentBypass {
+		return true
+	}
+	return d.PathRule != nil && pathrule.IsPlatformStatic(d.PathRule.Pattern, d.PathRule.MatchType, "bypass")
+}
+
+func (e *Engine) hasVisitor(rc *RequestContext) bool {
+	if strings.TrimSpace(rc.CookieToken) == "" {
+		return false
+	}
+	_, err := token.Verify(rc.Site, rc.CookieToken, rc.Now)
+	return err == nil
 }
 
 func (e *Engine) siteDisabledContent(site *snapshot.Site) string {
