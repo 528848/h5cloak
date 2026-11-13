@@ -265,8 +265,9 @@
     {
       prop: 'publishableKey',
       label: '公钥',
-      minWidth: 180,
-      formatter: (row) => row.publishableKey
+      minWidth: 220,
+      slot: 'publishableKey',
+      formatter: (row) => row.publishableKey || '-'
     },
     { prop: 'createdAt', label: '创建时间', minWidth: 160 },
     {

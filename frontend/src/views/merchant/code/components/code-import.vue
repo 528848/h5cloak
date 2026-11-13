@@ -72,7 +72,7 @@ BOB02,Bob"
     >
       <ul v-if="result.conflicts.length" class="conflicts">
         <li v-for="(c, i) in result.conflicts.slice(0, 50)" :key="i">
-          <span class="mono">{{ c.code }}</span>
+          <code-cell :text="c.code" />
           <span v-if="c.line">（第 {{ c.line }} 行）</span>
           ：{{ c.reason }}
         </li>
@@ -98,6 +98,7 @@ BOB02,Bob"
 
 <script setup>
   import { ref, reactive } from 'vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { EleMessage, useModal } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
   import { importCodes } from '@/api/merchant/code';

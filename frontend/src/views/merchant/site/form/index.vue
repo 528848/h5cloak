@@ -224,21 +224,79 @@
               <el-switch v-model="form.handoffLinkRewrite" />
             </el-form-item>
           </el-col>
-          <el-col :span="24">
-            <el-form-item label="提示文案">
-              <el-input
-                v-model.trim="form.handoffBannerText"
-                maxlength="80"
-                placeholder="在浏览器中打开，继续访问"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col v-if="form.handoffBanner" :span="24">
-            <el-form-item label="效果">
-              <el-button plain @click="bannerPreview = true">预览提示条</el-button>
-              <span class="field-hint">浮层弹框，没有遮罩，访客仍可操作源站</span>
-            </el-form-item>
-          </el-col>
+          <template v-if="form.handoffBanner">
+            <el-col :md="8" :xs="24">
+              <el-form-item label="出现延迟">
+                <el-input-number
+                  v-model="form.handoffDelaySeconds"
+                  :min="0"
+                  :max="120"
+                  controls-position="right"
+                />
+                <span class="field-hint">秒，默认 10。0 表示马上弹</span>
+              </el-form-item>
+            </el-col>
+            <el-col :md="8" :xs="24">
+              <el-form-item label="再次提醒冷却">
+                <el-input-number
+                  v-model="form.handoffCooldownMinutes"
+                  :min="5"
+                  :max="1440"
+                  controls-position="right"
+                />
+                <span class="field-hint">分钟，默认 30</span>
+              </el-form-item>
+            </el-col>
+            <el-col :md="8" :xs="24">
+              <el-form-item label="最多提醒次数">
+                <el-input-number
+                  v-model="form.handoffMaxShows"
+                  :min="1"
+                  :max="5"
+                  controls-position="right"
+                />
+                <span class="field-hint">次，默认 3</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="关闭后不再提醒">
+                <el-switch v-model="form.handoffDismissEnds" />
+                <span class="field-hint">默认关。打开后，访客关掉弹框就不再重试</span>
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-tabs v-model="copyDevice">
+                <el-tab-pane label="移动端文案" name="mobile" />
+                <el-tab-pane label="电脑端文案" name="desktop" />
+              </el-tabs>
+            </el-col>
+            <el-col :md="12" :xs="24">
+              <el-form-item label="标题">
+                <el-input v-model.trim="activeCopy.title" maxlength="40" />
+              </el-form-item>
+            </el-col>
+            <el-col :md="12" :xs="24">
+              <el-form-item label="主按钮">
+                <el-input v-model.trim="activeCopy.open" maxlength="12" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="说明">
+                <el-input v-model.trim="activeCopy.body" maxlength="120" />
+              </el-form-item>
+            </el-col>
+            <el-col :md="12" :xs="24">
+              <el-form-item label="次按钮">
+                <el-input v-model.trim="activeCopy.stay" maxlength="12" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="24">
+              <el-form-item label="效果">
+                <el-button plain @click="openBannerPreview">预览弹框</el-button>
+                <span class="field-hint">没有遮罩。移动端在底部，电脑端在右下角</span>
+              </el-form-item>
+            </el-col>
+          </template>
           <el-col :md="8" :xs="24">
             <el-form-item label="接力有效期">
               <el-input-number
@@ -736,21 +794,27 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="bannerPreview" title="提示条预览" width="640px">
-      <div class="banner-stage">
+    <el-dialog v-model="bannerPreview" title="引导弹框预览" width="800px">
+      <el-tabs v-model="previewDevice">
+        <el-tab-pane label="移动端" name="mobile" />
+        <el-tab-pane label="电脑端" name="desktop" />
+      </el-tabs>
+      <div class="banner-stage" :class="previewDevice">
         <div class="banner-page">
           <div class="banner-line"></div>
           <div class="banner-line short"></div>
           <div class="banner-line"></div>
           <div class="banner-line mid"></div>
         </div>
-        <div class="ck-preview">
+        <div class="ck-preview" :class="previewDevice">
           <button type="button" class="ck-x" @click="bannerPreview = false">×</button>
-          <div class="ck-text">{{ form.handoffBannerText || '在浏览器中打开，继续访问' }}</div>
-          <span class="ck-open">打开</span>
+          <div v-if="previewCopy.title" class="ck-title">{{ previewCopy.title }}</div>
+          <div class="ck-text">{{ previewCopy.body }}</div>
+          <button type="button" class="ck-open" @click="previewOpen">{{ previewCopy.open }}</button>
+          <button type="button" class="ck-stay" @click="bannerPreview = false">{{ previewCopy.stay }}</button>
         </div>
       </div>
-      <p class="banner-note">弹框浮在源站上，没有遮罩。访客可以关掉它，也可以继续点击页面里的内容。</p>
+      <p class="banner-note">预览不请求客户网站，也不会跳转。线上的弹框浮在真实站上，没有遮罩。</p>
     </el-dialog>
 
     <el-dialog v-model="previewVisible" title="模板预览" width="860px">
@@ -799,6 +863,7 @@
     getOptionLabel,
     getOptionType,
     emptySiteForm,
+    handoffCopyDefaults,
     siteToPayload
   } from '../constants';
 
@@ -832,6 +897,32 @@
   const previewVisible = ref(false);
   const secretVisible = ref(false);
   const bannerPreview = ref(false);
+  const copyDevice = ref('mobile');
+  const previewDevice = ref('mobile');
+  const activeCopy = computed(() =>
+    copyDevice.value === 'desktop' ? form.handoffDesktop : form.handoffMobile
+  );
+  const previewCopy = computed(() => {
+    const copies = handoffCopyDefaults();
+    const narrow = previewDevice.value !== 'desktop';
+    const primary = narrow ? form.handoffMobile : form.handoffDesktop;
+    const other = narrow ? form.handoffDesktop : form.handoffMobile;
+    const fallback = narrow ? copies.mobile : copies.desktop;
+    const pick = (key) => primary?.[key] || other?.[key] || fallback[key];
+    return {
+      title: pick('title'),
+      body: pick('body'),
+      open: pick('open'),
+      stay: pick('stay')
+    };
+  });
+  const openBannerPreview = () => {
+    previewDevice.value = copyDevice.value === 'desktop' ? 'desktop' : 'mobile';
+    bannerPreview.value = true;
+  };
+  const previewOpen = () => {
+    EleMessage.info({ message: '线上会交给系统默认浏览器', plain: true });
+  };
   const serverSecret = ref('');
   const review = reactive({
     source: 'template',
@@ -879,6 +970,18 @@
       minConfidence: data.minConfidence,
       handoffBanner: data.handoffBanner,
       handoffBannerText: data.handoffBannerText,
+      handoffDelaySeconds: data.handoffPrompt?.delaySeconds ?? 10,
+      handoffCooldownMinutes: data.handoffPrompt?.cooldownMinutes ?? 30,
+      handoffMaxShows: data.handoffPrompt?.maxShows ?? 3,
+      handoffDismissEnds: !!data.handoffPrompt?.dismissEnds,
+      handoffMobile: {
+        ...handoffCopyDefaults().mobile,
+        ...(data.handoffPrompt?.mobile || {})
+      },
+      handoffDesktop: {
+        ...handoffCopyDefaults().desktop,
+        ...(data.handoffPrompt?.desktop || {})
+      },
       handoffLinkRewrite: data.handoffLinkRewrite,
       handoffTokenTtlHours: data.handoffTokenTtlHours,
       handoffTokenMaxUses: data.handoffTokenMaxUses,
@@ -1154,10 +1257,20 @@
 
   .banner-stage {
     position: relative;
-    height: 280px;
+    height: 360px;
     border-radius: 10px;
     background: #f5f6f8;
     overflow: hidden;
+  }
+
+  .banner-stage.mobile {
+    width: 390px;
+    height: 420px;
+    margin: 0 auto;
+  }
+
+  .banner-stage.desktop {
+    width: 720px;
   }
 
   .banner-page {
@@ -1181,10 +1294,6 @@
 
   .ck-preview {
     position: absolute;
-    left: 50%;
-    top: 18%;
-    transform: translateX(-50%);
-    width: min(360px, calc(100% - 32px));
     box-sizing: border-box;
     padding: 16px 16px 14px;
     background: #fff;
@@ -1193,6 +1302,23 @@
     box-shadow: 0 16px 48px rgba(0, 0, 0, 0.22);
     font-size: 14px;
     line-height: 1.5;
+  }
+
+  .ck-preview.mobile {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .ck-preview.desktop {
+    right: 24px;
+    bottom: 24px;
+    width: 360px;
+  }
+
+  .ck-title {
+    margin: 0 22px 6px 0;
+    font-weight: 600;
   }
 
   .ck-x {
@@ -1216,9 +1342,20 @@
     display: inline-block;
     background: #1677ff;
     color: #fff;
+    border: 0;
     border-radius: 6px;
     padding: 8px 14px;
     font-weight: 600;
+    cursor: pointer;
+  }
+
+  .ck-stay {
+    margin-left: 8px;
+    background: none;
+    border: 0;
+    color: #4e5969;
+    padding: 8px 4px;
+    cursor: pointer;
   }
 
   .banner-note {

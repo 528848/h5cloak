@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"html"
 	"net/http"
 	"net/url"
@@ -12,13 +13,6 @@ import (
 	"cloak/internal/engine"
 	"cloak/internal/engine/snapshot"
 )
-
-// 引导弹框：浮在页面上，没有遮罩，不挡住源站点击。按 OS 提供唤起系统浏览器的链接。
-const bannerTemplate = `<div id="ck-handoff" style="position:fixed;z-index:2147483647;left:50%;top:18%;transform:translateX(-50%);width:min(360px,calc(100% - 32px));background:#fff;color:#1f2329;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.22);font:14px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:16px 16px 14px;box-sizing:border-box">
-<button type="button" aria-label="close" onclick="document.getElementById('ck-handoff').style.display='none';document.cookie='_ck_hb=1;path=/;SameSite=Lax'" style="position:absolute;top:8px;right:10px;background:none;border:0;color:#8a8f99;font-size:20px;line-height:1;padding:0;cursor:pointer">&times;</button>
-<div style="margin:0 22px 14px 0">%TEXT%</div>
-<a href="%HREF%" style="display:inline-block;background:#1677ff;color:#fff;border-radius:6px;padding:8px 14px;text-decoration:none;font-weight:600">%BTN%</a>
-</div>`
 
 var (
 	bodyClose   = []byte("</body>")
@@ -59,33 +53,47 @@ func openInBrowserHref(target string, osName string) string {
 // BannerDismissedCookie 访客关闭引导条后写的会话 cookie。
 var BannerDismissedCookie = bannerShown
 
-// injectHTML 在 </body> 前注入引导条，并可对同域链接追加 _ck。
-// 只对完整的 HTML 文档处理；找不到 </body> 时追加到末尾。showBanner=false 时只做链接延续。
+// injectHTML 在 </body> 前插入引导配置和 JS SDK，并可对同域链接追加 _ck。
+// 弹框由 sdk.js 按延迟绘制。showBanner=false 时只做链接延续。
 func injectHTML(body []byte, site *snapshot.Site, current *url.URL, token, osName string, rewriteLinks, showBanner bool) []byte {
 	if rewriteLinks && token != "" {
 		body = appendTokenToLinks(body, current, token)
 	}
-	if showBanner && site.Handoff.Banner && token != "" {
-		text := site.Handoff.BannerText
-		if text == "" {
-			text = "在浏览器中打开，继续访问"
+	if showBanner && site != nil && site.Handoff.Banner {
+		if snippet := handoffScript(site, current, token, osName); len(snippet) > 0 {
+			if i := bytes.LastIndex(bytes.ToLower(body), bodyClose); i >= 0 {
+				out := make([]byte, 0, len(body)+len(snippet))
+				out = append(out, body[:i]...)
+				out = append(out, snippet...)
+				out = append(out, body[i:]...)
+				return out
+			}
+			return append(body, snippet...)
 		}
-		hu := handoffURL(current, token)
-		banner := strings.NewReplacer(
-			"%TEXT%", html.EscapeString(text),
-			"%HREF%", html.EscapeString(openInBrowserHref(hu, osName)),
-			"%BTN%", "打开",
-		).Replace(bannerTemplate)
-		if i := bytes.LastIndex(bytes.ToLower(body), bodyClose); i >= 0 {
-			out := make([]byte, 0, len(body)+len(banner))
-			out = append(out, body[:i]...)
-			out = append(out, banner...)
-			out = append(out, body[i:]...)
-			return out
-		}
-		return append(body, banner...)
 	}
 	return body
+}
+
+// handoffScript 把已经填好默认值的引导配置交给页面上的 JS SDK。
+func handoffScript(site *snapshot.Site, current *url.URL, token, osName string) []byte {
+	if current == nil {
+		return nil
+	}
+	target := current.String()
+	if token != "" {
+		target = handoffURL(current, token)
+	}
+	p := site.Handoff.EffectivePrompt()
+	raw, err := json.Marshal(map[string]any{
+		"url": target, "os": osName, "enabled": true,
+		"delaySeconds": p.DelaySeconds, "cooldownMinutes": p.CooldownMinutes,
+		"maxShows": p.MaxShows, "dismissEnds": p.DismissEnds,
+		"mobile": p.Mobile, "desktop": p.Desktop,
+	})
+	if err != nil {
+		return nil
+	}
+	return append(append([]byte(`<script>window.__CLOAK_HANDOFF__=`), raw...), []byte(`;</script><script src="/_cloak/sdk.js" data-banner="preset" async></script>`)...)
 }
 
 // appendTokenToLinks 对 <a href> 与 <form action> 的同域链接追加 _ck。

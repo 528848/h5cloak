@@ -130,8 +130,22 @@
             <el-tab-pane label="Node.js" name="node" />
             <el-tab-pane label="PHP" name="php" />
             <el-tab-pane label="Python" name="python" />
+            <el-tab-pane label="Java" name="java" />
+            <el-tab-pane label="Go" name="go" />
           </el-tabs>
-          <pre class="code-block mono">{{ samples[lang] }}</pre>
+          <div class="code-wrap">
+            <el-tooltip content="复制代码" placement="top">
+              <el-button
+                class="code-copy"
+                link
+                type="primary"
+                :icon="DocumentCopy"
+                aria-label="复制代码"
+                @click="copy(samples[lang])"
+              />
+            </el-tooltip>
+            <pre class="code-block mono">{{ samples[lang] }}</pre>
+          </div>
         </section-card>
       </el-col>
 
@@ -301,7 +315,7 @@
 
 <script setup>
   import { ref, computed, onMounted } from 'vue';
-  import { Plus } from '@element-plus/icons-vue';
+  import { Plus, DocumentCopy } from '@element-plus/icons-vue';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';
   import {
@@ -536,7 +550,43 @@ sig = request.headers.get("X-Cloak-Signature", "").removeprefix("v1=")
 expect = hmac.new(SECRET.encode(), f"{ts}.".encode() + request.get_data(), hashlib.sha256).hexdigest()
 if abs(time.time() - int(ts or 0)) > 300 or not hmac.compare_digest(expect, sig):
     abort(401)
-event = request.get_json()  # id / event / merchantId / createdAt / data`
+event = request.get_json()  # id / event / merchantId / createdAt / data`,
+    java: `String ts = request.getHeader("X-Cloak-Timestamp");
+if (ts == null) ts = "";
+String rawSig = request.getHeader("X-Cloak-Signature");
+String sig = rawSig == null ? "" : rawSig.replaceFirst("^v1=", "");
+byte[] body = request.getInputStream().readAllBytes();
+String secret = System.getenv("CLOAK_WEBHOOK_SECRET");
+Mac mac = Mac.getInstance("HmacSHA256");
+mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+mac.update(ts.getBytes(StandardCharsets.UTF_8));
+mac.update((byte) '.');
+mac.update(body);
+String expect = HexFormat.of().formatHex(mac.doFinal());
+long tsSec;
+try { tsSec = Long.parseLong(ts); } catch (NumberFormatException e) { tsSec = 0; }
+long skew = Math.abs(Instant.now().getEpochSecond() - tsSec);
+if (skew > 300 || !MessageDigest.isEqual(
+        expect.getBytes(StandardCharsets.UTF_8), sig.getBytes(StandardCharsets.UTF_8))) {
+    response.setStatus(401);
+    return;
+}
+// JSON：id / event / merchantId / createdAt / data，用 id 做幂等`,
+    go: `ts := r.Header.Get("X-Cloak-Timestamp")
+sig := strings.TrimPrefix(r.Header.Get("X-Cloak-Signature"), "v1=")
+body, _ := io.ReadAll(r.Body)
+mac := hmac.New(sha256.New, []byte(os.Getenv("CLOAK_WEBHOOK_SECRET")))
+mac.Write([]byte(ts))
+mac.Write([]byte("."))
+mac.Write(body)
+expect := hex.EncodeToString(mac.Sum(nil))
+n, _ := strconv.ParseInt(ts, 10, 64)
+if time.Since(time.Unix(n, 0)).Abs() > 5*time.Minute ||
+    !hmac.Equal([]byte(expect), []byte(strings.ToLower(sig))) {
+    http.Error(w, "unauthorized", http.StatusUnauthorized)
+    return
+}
+// JSON：id / event / merchantId / createdAt / data，用 id 做幂等`
   };
 
   onMounted(load);
@@ -593,15 +643,26 @@ event = request.get_json()  # id / event / merchantId / createdAt / data`
     margin-bottom: 8px;
   }
 
+  .code-wrap {
+    position: relative;
+  }
+
+  .code-copy {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    z-index: 1;
+  }
+
   .code-block {
     margin: 0;
-    padding: 12px 14px;
+    padding: 12px 36px 12px 14px;
     border-radius: 8px;
     background: var(--el-fill-color-light);
     font-size: 12px;
     line-height: 1.6;
     overflow: auto;
-    max-height: 260px;
+    max-height: 320px;
     white-space: pre;
   }
 

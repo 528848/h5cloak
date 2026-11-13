@@ -63,6 +63,13 @@ $gz = gzencode('<a href="https://toptime.cc/index.php/product-category/rolex/">R
 $plain = Rewriter::inflate($gz, 'gzip');
 $rewritten = Rewriter::rewriteBodyHost($plain, ['toptime.cc'], 'iris6666.com', 'https');
 check('gzip:inflate-rewrite', $rewritten, '<a href="https://iris6666.com/index.php/product-category/rolex/">ROLEX</a><title>iris6666.com</title>');
+$html = str_repeat('<p>iris6666.com</p>', 80);
+$outGz = Rewriter::gzipForVisitor($html, 'text/html', 'gzip, deflate');
+check('gzip:visitor', is_string($outGz) && gzdecode($outGz) === $html, true);
+check('gzip:skip-png', Rewriter::gzipForVisitor($html, 'image/png', 'gzip'), null);
+check('gzip:skip-small', Rewriter::gzipForVisitor('<p>x</p>', 'text/html', 'gzip'), null);
+check('cache-control:html', Rewriter::visitorCacheControl('/product/'), 'no-store');
+check('cache-control:css', Rewriter::visitorCacheControl('/assets/app.css?ver=1'), 'public, max-age=86400');
 
 // 6. 深度代理缓存：键、过期、清理、个人请求不命中
 $cacheDir = sys_get_temp_dir() . '/cloak-sdk-cache-' . bin2hex(random_bytes(4));

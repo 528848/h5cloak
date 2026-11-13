@@ -75,6 +75,7 @@ type Site struct {
 	MinConfidence        string
 	HandoffBanner        bool
 	HandoffBannerText    string
+	HandoffPrompt        []byte `gorm:"column:handoff_prompt;type:json"`
 	HandoffLinkRewrite   bool
 	HandoffTokenTTLHours int
 	HandoffTokenMaxUses  int

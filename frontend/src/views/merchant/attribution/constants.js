@@ -13,14 +13,8 @@ export const paramTypeOptions = [
   },
   {
     value: 'distributor',
-    label: '分销码',
+    label: '归因码',
     type: 'success',
-    desc: '须在归因码列表中登记'
-  },
-  {
-    value: 'campaign',
-    label: '活动码',
-    type: 'warning',
     desc: '须在归因码列表中登记'
   },
   { value: 'free', label: '自由参数', type: 'info', desc: '只校验格式' }
@@ -47,6 +41,11 @@ export const combineOptions = [
     value: 'require_click_or_code',
     label: '至少一个点击参数或归因码',
     desc: '只有来源参数时不放行'
+  },
+  {
+    value: 'require_click_and_code',
+    label: '点击参数和归因码同时具备',
+    desc: '必须同时带上通过校验的点击参数和有效归因码，少一项就返回审核内容'
   }
 ];
 

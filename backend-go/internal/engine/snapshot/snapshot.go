@@ -112,7 +112,8 @@ type Handoff struct {
 	MatchEnabled  bool   `json:"matchEnabled"`
 	MatchMinutes  int    `json:"matchMinutes"`
 	// MatchSystemOnly 匹配时要求新请求来自系统浏览器（默认 true）
-	MatchSystemOnly bool `json:"matchSystemOnly"`
+	MatchSystemOnly bool   `json:"matchSystemOnly"`
+	Prompt          Prompt `json:"prompt"`
 }
 
 // TokenKey 访客令牌签名密钥。Status active 为当前签发密钥；grace 为宽限期内仍可验签的旧密钥。
@@ -137,7 +138,7 @@ type Param struct {
 }
 
 type Rule struct {
-	CombineRule         string   `json:"combineRule"` // require_any / require_click_or_code
+	CombineRule         string   `json:"combineRule"` // require_any / require_click_or_code / require_click_and_code
 	ValidateCodes       bool     `json:"validateCodes"`
 	ValidateClickFormat bool     `json:"validateClickFormat"`
 	AllowedSources      []string `json:"allowedSources"`

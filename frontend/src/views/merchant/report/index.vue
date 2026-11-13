@@ -66,8 +66,10 @@
     />
 
     <ele-card class="table-section" :body-style="{ paddingTop: '4px' }">
-      <ele-tabs v-model="tab" :items="tabs" class="report-tabs" />
-      <p class="muted-text tip">{{ tipOf(tab) }}</p>
+      <div class="report-head">
+        <ele-tabs v-model="tab" :items="tabs" class="report-tabs" />
+        <p class="muted-text tip">{{ tipOf(tab) }}</p>
+      </div>
 
       <!-- 渠道 -->
       <ele-pro-table
@@ -91,9 +93,9 @@
         }}</template>
       </ele-pro-table>
 
-      <!-- 归因码（分销码 / 活动码） -->
+      <!-- 归因码 -->
       <ele-pro-table
-        v-else-if="tab === 'code' || tab === 'campaign'"
+        v-else-if="tab === 'code'"
         :key="tab"
         ref="codeTable"
         row-key="codeId"
@@ -103,21 +105,27 @@
         :page-size="20"
       >
         <template #code="{ row }">
-          <span class="mono">{{ row.code }}</span>
+          <code-cell :text="row.code" />
           <span v-if="row.name" class="muted-text" style="margin-left: 6px">{{
             row.name
           }}</span>
         </template>
         <template #status="{ row }">
           <el-tag
+            v-if="row.status"
             :type="row.status === 'enabled' ? 'success' : 'info'"
             size="small"
             effect="plain"
             >{{ row.status === 'enabled' ? '启用' : '停用' }}</el-tag
           >
+          <span v-else class="muted-text">-</span>
         </template>
         <template #rate="{ row }"
-          >{{ pct(row.conversions, row.visits) }}%</template
+          >{{
+            row.visits === null || row.visits === undefined || row.visits === ''
+              ? '-'
+              : pct(row.conversions, row.visits) + '%'
+          }}</template
         >
         <template #conversionAmount="{ row }">{{
           fmtAmount(row.conversionAmount)
@@ -160,7 +168,8 @@
         >
         <template #channel="{ row }">
           <span class="mono">{{ row.channel || '-' }}</span>
-          <span v-if="row.code" class="muted-text"> · {{ row.code }}</span>
+          <span class="muted-text"> · </span>
+          <code-cell :text="row.code" />
         </template>
         <template #occurredAt="{ row }">{{ fmtTime(row.occurredAt) }}</template>
       </ele-pro-table>
@@ -172,6 +181,7 @@
   import { ref, computed, watch, onMounted, nextTick } from 'vue';
   import { useRoute, useRouter } from 'vue-router';
   import { Download, Checked } from '@element-plus/icons-vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { ElNotification } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';
   import { useCurrentSite } from '@/utils/use-site';
@@ -211,7 +221,6 @@
   const tabs = [
     { name: 'channel', label: '渠道' },
     { name: 'code', label: '归因码' },
-    { name: 'campaign', label: '活动码' },
     { name: 'path', label: '路径' },
     { name: 'conversion', label: '转化' }
   ];
@@ -219,7 +228,6 @@
     ({
       channel: '按归因渠道汇总放行与转化，实时统计。',
       code: '按归因码汇总放行、回访、交接与转化，每分钟更新。',
-      campaign: '按活动码汇总，每分钟更新。',
       path: '按网站页面路径汇总。页面里的图片、脚本、样式和其他文件请求不计入。',
       conversion: '服务端回传的转化明细及其归因。'
     })[t];
@@ -261,16 +269,25 @@
       align: 'right'
     }
   ];
+  const num = (prop) => (row) => {
+    const v = row[prop];
+    return v === null || v === undefined || v === '' ? '-' : v;
+  };
   const codeColumns = [
     { prop: 'code', label: '码', slot: 'code', minWidth: 200 },
-    { prop: 'channel', label: '渠道标签', width: 120 },
+    {
+      prop: 'channel',
+      label: '渠道标签',
+      width: 120,
+      formatter: (row) => row.channel || '-'
+    },
     { prop: 'status', label: '状态', slot: 'status', width: 80 },
-    { prop: 'visits', label: '放行', width: 100, align: 'right' },
-    { prop: 'firstVisits', label: '首访', width: 90, align: 'right' },
-    { prop: 'returnVisits', label: '回访', width: 90, align: 'right' },
-    { prop: 'handoffVisits', label: '交接', width: 90, align: 'right' },
-    { prop: 'inApp', label: '内置浏览器', width: 110, align: 'right' },
-    { prop: 'conversions', label: '转化', width: 90, align: 'right' },
+    { prop: 'visits', label: '放行', width: 100, align: 'right', formatter: num('visits') },
+    { prop: 'firstVisits', label: '首访', width: 90, align: 'right', formatter: num('firstVisits') },
+    { prop: 'returnVisits', label: '回访', width: 90, align: 'right', formatter: num('returnVisits') },
+    { prop: 'handoffVisits', label: '交接', width: 90, align: 'right', formatter: num('handoffVisits') },
+    { prop: 'inApp', label: '内置浏览器', width: 110, align: 'right', formatter: num('inApp') },
+    { prop: 'conversions', label: '转化', width: 90, align: 'right', formatter: num('conversions') },
     { prop: 'rate', label: '转化率', slot: 'rate', width: 90, align: 'right' },
     {
       prop: 'conversionAmount',
@@ -330,9 +347,7 @@
     ({ page, limit }) =>
       fn({ ...rangeParams.value, ...extra, pageNum: page, pageSize: limit });
   const codeDatasource = computed(() =>
-    ds(pageCodeReport, {
-      codeType: tab.value === 'campaign' ? 'campaign' : 'distributor'
-    })
+    ds(pageCodeReport, { codeType: 'distributor' })
   );
   const pathDatasource = ds(pagePathReport);
   const convDatasource = ds(pageConversionReport);
@@ -356,7 +371,6 @@
     ({
       channel: 'report_channel',
       code: 'report_code',
-      campaign: 'report_campaign',
       path: 'report_path',
       conversion: 'report_conversion'
     })[tab.value];
@@ -407,13 +421,28 @@
     flex-wrap: wrap;
   }
 
+  .report-head {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 40px;
+    margin-bottom: 8px;
+  }
+
   .report-tabs {
-    margin-bottom: 4px;
+    flex: 0 0 auto;
+    margin-bottom: 0;
+  }
+
+  .report-tabs :deep(.el-tabs__header) {
+    margin-bottom: 0;
   }
 
   .tip {
-    margin: 0 0 10px;
+    margin: 0;
     font-size: 12px;
+    line-height: 20px;
+    white-space: nowrap;
   }
 
   .muted-text {

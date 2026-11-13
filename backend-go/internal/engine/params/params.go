@@ -251,6 +251,9 @@ func Validate(site *snapshot.Site, ms []Matched, env Env) Result {
 	switch rule.CombineRule {
 	case "require_click_or_code":
 		res.Attributed = res.Code != nil || res.HasClick
+	case "require_click_and_code":
+		// 必须同时有通过校验的点击参数和有效归因码。单独一项，或只用来源参数，都不放行。
+		res.Attributed = res.Code != nil && res.HasClick
 	default:
 		res.Attributed = anyPass
 	}

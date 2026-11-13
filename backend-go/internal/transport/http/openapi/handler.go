@@ -278,12 +278,32 @@ func (h *Handler) decisionData(site *snapshot.Site, rc *engine.RequestContext, d
 		q.Set(engine.HandoffParam, d.HandoffToken)
 		hu.RawQuery = q.Encode()
 		data["handoffUrl"] = hu.String()
-		data["handoffBanner"] = map[string]any{"enabled": site.Handoff.Banner, "text": site.Handoff.BannerText}
+	}
+	if banner := handoffBannerPayload(site, d); banner != nil {
+		data["handoffBanner"] = banner
+		if _, ok := data["handoffUrl"]; !ok {
+			data["handoffUrl"] = rc.URL.String()
+		}
 	}
 	if d.Content == engine.ContentReview {
 		data["renderHint"] = h.renderHint(site)
 	}
 	return data
+}
+
+// handoffBannerPayload 只在内置浏览器里看真实内容、且站点打开了提示条时返回。审核页不带。
+func handoffBannerPayload(site *snapshot.Site, d *engine.Decision) map[string]any {
+	if site == nil || d == nil || !site.Handoff.Banner || !d.InApp.InApp {
+		return nil
+	}
+	if d.Content != engine.ContentReal && d.Content != engine.ContentBypass {
+		return nil
+	}
+	p := site.Handoff.EffectivePrompt()
+	return map[string]any{
+		"enabled": true, "delaySeconds": p.DelaySeconds, "cooldownMinutes": p.CooldownMinutes,
+		"maxShows": p.MaxShows, "dismissEnds": p.DismissEnds, "mobile": p.Mobile, "desktop": p.Desktop,
+	}
 }
 
 // renderHint 审核内容为模板时直接给 HTML，为静态包/源站时给提示。

@@ -23,6 +23,7 @@ import (
 	"cloak/internal/domain/identity"
 	domainsite "cloak/internal/domain/site"
 	"cloak/internal/engine/pathrule"
+	"cloak/internal/engine/snapshot"
 	"cloak/internal/pkg/probe"
 	"cloak/internal/pkg/secretbox"
 )
@@ -101,7 +102,10 @@ type SiteInput struct {
 	HandoffMatchEnabled  *bool
 	HandoffMatchSysOnly  *bool
 	HandoffMatchMinutes  int
-	SecretIPAllowlist    []string
+	// 未传则不改库里的 handoff_prompt。NULL 继续表示 10 秒、30 分钟、3 次。
+	HandoffPrompt     *snapshot.PromptInput `json:"handoffPrompt"`
+	SecretIPAllowlist []string
+	promptJSON        []byte
 }
 
 func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (map[string]any, string, error) {
@@ -131,7 +135,7 @@ func (s *Service) Create(ctx context.Context, merchantID uint64, in SiteInput) (
 		SecretIPAllowlist: allow, CookieName: in.CookieName, CookieDomain: strPtr(in.CookieDomain),
 		AttributionTTLDays: in.AttributionTTLDays, RenewMode: in.RenewMode,
 		NoAttributionAction: in.NoAttributionAction, FailMode: in.FailMode, MinConfidence: in.MinConfidence,
-		HandoffBanner: *in.HandoffBanner, HandoffBannerText: in.HandoffBannerText, HandoffLinkRewrite: *in.HandoffLinkRewrite,
+		HandoffBanner: *in.HandoffBanner, HandoffBannerText: in.HandoffBannerText, HandoffPrompt: in.promptJSON, HandoffLinkRewrite: *in.HandoffLinkRewrite,
 		HandoffTokenTTLHours: in.HandoffTokenTTLHours, HandoffTokenMaxUses: in.HandoffTokenMaxUses,
 		HandoffMatchEnabled: *in.HandoffMatchEnabled, HandoffMatchMinutes: in.HandoffMatchMinutes, HandoffMatchSysOnly: *in.HandoffMatchSysOnly,
 		TokenKeyVersion: 1, TokenKeys: keys, SecretEnc: s.seal(sk),
@@ -164,15 +168,21 @@ func (s *Service) Update(ctx context.Context, merchantID, id uint64, in SiteInpu
 	site.AttributionTTLDays, site.RenewMode = in.AttributionTTLDays, in.RenewMode
 	site.NoAttributionAction, site.FailMode, site.MinConfidence = in.NoAttributionAction, in.FailMode, in.MinConfidence
 	site.HandoffBanner, site.HandoffBannerText = *in.HandoffBanner, in.HandoffBannerText
+	fields := []string{
+		"Name", "SiteType", "Remark", "CookieName", "CookieDomain", "AttributionTTLDays", "RenewMode",
+		"NoAttributionAction", "FailMode", "MinConfidence", "HandoffBanner", "HandoffBannerText", "HandoffLinkRewrite",
+		"HandoffTokenTTLHours", "HandoffTokenMaxUses", "HandoffMatchEnabled", "HandoffMatchMinutes", "HandoffMatchSysOnly", "SecretIPAllowlist",
+	}
+	if in.HandoffPrompt != nil {
+		site.HandoffPrompt = in.promptJSON
+		fields = append(fields, "HandoffPrompt")
+	}
 	site.HandoffLinkRewrite = *in.HandoffLinkRewrite
 	site.HandoffTokenTTLHours, site.HandoffTokenMaxUses = in.HandoffTokenTTLHours, in.HandoffTokenMaxUses
 	site.HandoffMatchEnabled, site.HandoffMatchMinutes = *in.HandoffMatchEnabled, in.HandoffMatchMinutes
 	site.HandoffMatchSysOnly = *in.HandoffMatchSysOnly
 	site.SecretIPAllowlist = allow
-	return s.done(id, s.repo.UpdateSite(ctx, site,
-		"Name", "SiteType", "Remark", "CookieName", "CookieDomain", "AttributionTTLDays", "RenewMode",
-		"NoAttributionAction", "FailMode", "MinConfidence", "HandoffBanner", "HandoffBannerText", "HandoffLinkRewrite",
-		"HandoffTokenTTLHours", "HandoffTokenMaxUses", "HandoffMatchEnabled", "HandoffMatchMinutes", "HandoffMatchSysOnly", "SecretIPAllowlist"))
+	return s.done(id, s.repo.UpdateSite(ctx, site, fields...))
 }
 
 func (s *Service) ChangeStatus(ctx context.Context, merchantID, id uint64, status string, platform bool) error {
@@ -921,6 +931,7 @@ func brief(site *domainsite.Site) map[string]any {
 		"attributionTtlDays": site.AttributionTTLDays, "renewMode": site.RenewMode,
 		"noAttributionAction": site.NoAttributionAction, "failMode": site.FailMode, "minConfidence": site.MinConfidence,
 		"handoffBanner": site.HandoffBanner, "handoffBannerText": site.HandoffBannerText, "handoffLinkRewrite": site.HandoffLinkRewrite,
+		"handoffPrompt":        handoffPromptView(site.HandoffPrompt, site.HandoffBannerText),
 		"handoffTokenTtlHours": site.HandoffTokenTTLHours, "handoffTokenMaxUses": site.HandoffTokenMaxUses,
 		"handoffMatchEnabled": site.HandoffMatchEnabled, "handoffMatchMinutes": site.HandoffMatchMinutes, "handoffMatchSysOnly": site.HandoffMatchSysOnly,
 		"tokenKeyVersion": site.TokenKeyVersion,
@@ -992,7 +1003,11 @@ func normalize(in SiteInput) SiteInput {
 	default:
 		in.MinConfidence = "medium"
 	}
-	if in.HandoffBannerText == "" {
+	if in.HandoffPrompt != nil {
+		resolved := snapshot.NormalizePrompt(*in.HandoffPrompt, in.HandoffBannerText)
+		in.promptJSON, _ = json.Marshal(resolved)
+		in.HandoffBannerText = resolved.Mobile.Body
+	} else if in.HandoffBannerText == "" {
 		in.HandoffBannerText = "在浏览器中打开，继续访问"
 	}
 	if in.HandoffBanner == nil {
@@ -1020,6 +1035,14 @@ func normalize(in SiteInput) SiteInput {
 		in.HandoffMatchMinutes = 60
 	}
 	return in
+}
+
+func handoffPromptView(raw []byte, legacy string) snapshot.Prompt {
+	var stored snapshot.Prompt
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &stored)
+	}
+	return snapshot.Handoff{Prompt: stored, BannerText: legacy}.EffectivePrompt()
 }
 
 func validateSite(in SiteInput) error {

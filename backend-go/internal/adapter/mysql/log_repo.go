@@ -103,13 +103,12 @@ func (r *LogRepo) ApplyAttribution(ctx context.Context, w *decisionlog.Attributi
 		}).Create(&a).Error; err != nil {
 			return err
 		}
-		// 分销码统计
-		if statCodeID > 0 {
+		// 只统计页面请求。样式、脚本、图片不累加首访和回访。
+		if statCodeID > 0 && pageCountable(w.LandingPath) {
 			col := "return_count"
 			if w.TouchType == "first" {
 				col = "first_pass_count"
 			}
-			// 访问人数按 IP 去重：这个归因码下，同一个 IP 只加一次。
 			setVisit := ""
 			if w.IPHash != "" {
 				res := tx.Exec(`INSERT IGNORE INTO promo_code_ips (code_id, ip_hash, first_seen_at) VALUES (?, ?, ?)`, statCodeID, w.IPHash, w.At)
@@ -390,30 +389,58 @@ func (r *LogRepo) FindVisitor(ctx context.Context, siteID uint64, visitorID stri
 	return wrap(&row, err)
 }
 
-// LogStats 时间段内按 content / touch 统计。
+// LogStats 时间段内按页面 + IP 统计。同一页面、同一 IP 只计一次；有放行则不再计审核。样式和脚本不计入。
 func (r *LogRepo) LogStats(ctx context.Context, merchantID, siteID uint64, from time.Time) (map[string]int64, error) {
-	q := r.db.WithContext(ctx).Model(&decisionlog.Record{}).Where("created_at >= ?", from)
+	where := "created_at >= ? AND " + pagePathSQL
+	args := []any{from}
 	if merchantID > 0 {
-		q = q.Where("merchant_id = ?", merchantID)
+		where += " AND merchant_id = ?"
+		args = append(args, merchantID)
 	}
 	if siteID > 0 {
-		q = q.Where("site_id = ?", siteID)
+		where += " AND site_id = ?"
+		args = append(args, siteID)
 	}
-	var rows []struct {
-		Content   string
-		TouchType string
-		N         int64
+	inner := `SELECT
+		MAX(content = 'real') AS is_real,
+		MAX(content = 'review') AS is_review,
+		MAX(content = 'block') AS is_block,
+		MAX(content = 'not_found') AS is_nf,
+		MAX(content = 'real' AND touch_type = 'first') AS has_first,
+		MAX(content = 'real' AND touch_type = 'return') AS has_return,
+		MAX(content = 'real' AND touch_type = 'handoff') AS has_handoff
+	FROM decision_logs
+	WHERE ` + where + `
+	GROUP BY site_id, ` + pageKeySQL + `, ` + visitIPSQL
+	var out struct {
+		Total    int64
+		Real     int64 `gorm:"column:real_n"`
+		Review   int64 `gorm:"column:review_n"`
+		Block    int64 `gorm:"column:block_n"`
+		NotFound int64 `gorm:"column:not_found_n"`
+		First    int64 `gorm:"column:first_n"`
+		ReturnN  int64 `gorm:"column:return_n"`
+		Handoff  int64 `gorm:"column:handoff_n"`
 	}
-	if err := q.Select("content, touch_type, COUNT(*) AS n").Group("content, touch_type").Scan(&rows).Error; err != nil {
+	err := r.db.WithContext(ctx).Raw(`SELECT COUNT(*) AS total,
+		COALESCE(SUM(is_real),0) AS real_n,
+		COALESCE(SUM(is_real = 0 AND is_review = 1),0) AS review_n,
+		COALESCE(SUM(is_real = 0 AND is_review = 0 AND is_block = 1),0) AS block_n,
+		COALESCE(SUM(is_real = 0 AND is_review = 0 AND is_block = 0 AND is_nf = 1),0) AS not_found_n,
+		COALESCE(SUM(is_real = 1 AND has_first = 1),0) AS first_n,
+		COALESCE(SUM(is_real = 1 AND has_first = 0 AND has_return = 1),0) AS return_n,
+		COALESCE(SUM(is_real = 1 AND has_first = 0 AND has_return = 0 AND has_handoff = 1),0) AS handoff_n
+		FROM (`+inner+`) v`, args...).Scan(&out).Error
+	if err != nil {
 		return nil, err
 	}
-	out := map[string]int64{}
-	for _, x := range rows {
-		out["total"] += x.N
-		out["content:"+x.Content] += x.N
-		out["touch:"+x.TouchType] += x.N
-	}
-	return out, nil
+	return map[string]int64{
+		"total": out.Total,
+		"content:real": out.Real, "content:review": out.Review,
+		"content:block": out.Block, "content:not_found": out.NotFound, "content:bypass": 0,
+		"touch:first": out.First, "touch:return": out.ReturnN, "touch:handoff": out.Handoff,
+		"touch:none": out.Review,
+	}, nil
 }
 
 func nz(s []string) []string {
@@ -421,6 +448,42 @@ func nz(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+func pageKey(path string) string {
+	path = strings.TrimSpace(path)
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	if path == "" {
+		return "/"
+	}
+	return path
+}
+
+func pageCountable(path string) bool {
+	p := strings.ToLower(pageKey(path))
+	if p == "" {
+		return false
+	}
+	for _, dir := range []string{"/wp-content/", "/wp-includes/", "/assets/", "/static/", "/uploads/", "/fonts/", "/images/", "/img/", "/media/"} {
+		if p == strings.TrimSuffix(dir, "/") || strings.HasPrefix(p, dir) {
+			return false
+		}
+	}
+	base := p
+	if i := strings.LastIndex(p, "/"); i >= 0 {
+		base = p[i+1:]
+	}
+	if strings.HasPrefix(base, ".") {
+		return false
+	}
+	for _, ext := range []string{".css", ".js", ".mjs", ".map", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".ico", ".bmp", ".woff", ".woff2", ".ttf", ".eot", ".otf", ".json", ".xml", ".txt", ".pdf", ".zip", ".gz", ".mp3", ".mp4", ".webm", ".wasm"} {
+		if strings.HasSuffix(base, ext) {
+			return false
+		}
+	}
+	return true
 }
 
 func trunc(s string, n int) string {

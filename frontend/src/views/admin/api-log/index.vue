@@ -34,7 +34,12 @@
     { prop: 'siteName', label: '站点', minWidth: 120 },
     { prop: 'endpoint', label: '接口', minWidth: 160 },
     { prop: 'status', label: '状态码', width: 90, align: 'center' },
-    { prop: 'errorCode', label: '错误码', minWidth: 120 },
+    {
+      prop: 'errorCode',
+      label: '错误码',
+      minWidth: 120,
+      formatter: (row) => row.errorCode || '-'
+    },
     { prop: 'latencyMs', label: '耗时(ms)', width: 110, align: 'center' },
     { prop: 'ip', label: 'IP', minWidth: 130 },
     { prop: 'createdAt', label: '调用时间', minWidth: 160, align: 'center' },

@@ -4,7 +4,7 @@ Tags: attribution, promo code, woocommerce, cloak
 Requires at least: 5.6
 Tested up to: 6.8
 Requires PHP: 7.4
-Stable tag: 2.3.7
+Stable tag: 2.3.8
 License: GPLv2 or later
 
 斗篷系统 v2 的 WordPress / WooCommerce 接入插件。同一地址：带有效归因参数的访客看到真实页面，其余访客看到审核内容。
@@ -45,6 +45,9 @@ v2 使用站点的服务端密钥（`sk_` 开头），不是旧版的 `ck_` Key�
 判定按访客区分，整页缓存会让所有人看到同一结果。请对站点关闭整页缓存，或把需要判定的路径排除出缓存。
 
 == Changelog ==
+
+= 2.3.8 =
+* 引导弹框只出现在已放行的真实页。默认浏览 10 秒后弹出，可关闭，并按冷却和次数再试。电脑和手机文案分开。
 
 = 2.3.7 =
 * 应用内浏览器的引导弹框改由客户站点上的 JS SDK 绘制，点击后交给系统默认浏览器。插件只传入要打开的地址。

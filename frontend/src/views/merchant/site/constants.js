@@ -90,6 +90,21 @@ export const getOptionLabel = (options, value) =>
 export const getOptionType = (options, value) =>
   options.find((o) => o.value === value)?.type ?? 'info';
 
+export const handoffCopyDefaults = () => ({
+  mobile: {
+    title: '在浏览器中打开',
+    body: '用系统浏览器打开，页面和登录会更完整。',
+    open: '打开',
+    stay: '继续浏览'
+  },
+  desktop: {
+    title: '用系统浏览器打开',
+    body: '当前是应用内置浏览器。换到系统浏览器后可以继续这次访问。',
+    open: '打开',
+    stay: '稍后'
+  }
+});
+
 export const emptySiteForm = () => ({
   name: '',
   siteType: 'hybrid',
@@ -103,6 +118,12 @@ export const emptySiteForm = () => ({
   minConfidence: 'medium',
   handoffBanner: true,
   handoffBannerText: '在浏览器中打开，继续访问',
+  handoffDelaySeconds: 10,
+  handoffCooldownMinutes: 30,
+  handoffMaxShows: 3,
+  handoffDismissEnds: false,
+  handoffMobile: handoffCopyDefaults().mobile,
+  handoffDesktop: handoffCopyDefaults().desktop,
   handoffLinkRewrite: true,
   handoffTokenTtlHours: 24,
   handoffTokenMaxUses: 3,
@@ -124,7 +145,15 @@ export const siteToPayload = (form) => ({
   failMode: form.failMode,
   minConfidence: form.minConfidence,
   handoffBanner: !!form.handoffBanner,
-  handoffBannerText: form.handoffBannerText,
+  handoffBannerText: form.handoffMobile?.body || form.handoffBannerText,
+  handoffPrompt: {
+    delaySeconds: form.handoffDelaySeconds == null || form.handoffDelaySeconds === '' ? null : Number(form.handoffDelaySeconds),
+    cooldownMinutes: form.handoffCooldownMinutes == null || form.handoffCooldownMinutes === '' ? null : Number(form.handoffCooldownMinutes),
+    maxShows: form.handoffMaxShows == null || form.handoffMaxShows === '' ? null : Number(form.handoffMaxShows),
+    dismissEnds: !!form.handoffDismissEnds,
+    mobile: { ...form.handoffMobile },
+    desktop: { ...form.handoffDesktop }
+  },
   handoffLinkRewrite: !!form.handoffLinkRewrite,
   handoffTokenTtlHours: Number(form.handoffTokenTtlHours) || 24,
   handoffTokenMaxUses: Number(form.handoffTokenMaxUses) || 3,

@@ -55,7 +55,7 @@
             <el-form-item :label="codeLabel">
               <el-input
                 v-model.trim="form.code"
-                placeholder="已登记的归因码（分销码 / 活动码），留空则不带码"
+                placeholder="已登记的归因码，留空则不带码"
                 class="mono"
               />
               <div v-if="options.codeParam" class="field-hint">

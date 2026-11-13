@@ -89,7 +89,7 @@
           <span v-else class="muted-text">未配置</span>
         </template>
         <template #publishableKey="{ row }">
-          <span class="mono">{{ row.publishableKey }}</span>
+          <code-cell :text="row.publishableKey" />
         </template>
         <template #action="{ row }">
           <el-space :size="6" spacer="|">
@@ -121,6 +121,7 @@
 
 <script setup>
   import { ref, computed, onMounted, onActivated } from 'vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { useRouter } from 'vue-router';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';

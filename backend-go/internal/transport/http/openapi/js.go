@@ -89,7 +89,7 @@ func (h *Handler) jsCapture(w http.ResponseWriter, r *http.Request, rid string, 
 		data["visitorToken"] = d.VisitorToken
 		data["cookie"] = map[string]any{"name": site.Cookie.Name, "maxAge": d.CookieMaxAge(rc.Now), "domain": site.Cookie.Domain}
 	}
-	if d.InApp.InApp && site.Handoff.Banner {
+	if banner := handoffBannerPayload(site, &d); banner != nil {
 		target := rc.URL.String()
 		if d.HandoffToken != "" {
 			hu := *rc.URL
@@ -99,7 +99,7 @@ func (h *Handler) jsCapture(w http.ResponseWriter, r *http.Request, rid string, 
 			target = hu.String()
 		}
 		data["handoffUrl"] = target
-		data["handoffBanner"] = map[string]any{"enabled": true, "text": site.Handoff.BannerText}
+		data["handoffBanner"] = banner
 	}
 	h.emit(rc, &d, start)
 	h.apiLog(site, rid, "v2/js/capture", 200, "", start, ip)

@@ -1,6 +1,5 @@
 export const codeTypeOptions = [
-  { value: 'distributor', label: '分销码', type: 'success' },
-  { value: 'campaign', label: '活动码', type: 'warning' }
+  { value: 'distributor', label: '归因码', type: 'success' }
 ];
 
 export const codeStatusOptions = [

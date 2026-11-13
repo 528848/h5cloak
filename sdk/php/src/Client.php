@@ -189,19 +189,12 @@ final class Client
         if ($cache !== null && $cacheKey !== '' && $method === 'GET') {
             $hit = $cache->get($cacheKey);
             if (is_array($hit)) {
-                $this->status((int) $hit['status']);
-                if ($hit['contentType'] !== '') {
-                    header('Content-Type: ' . $hit['contentType']);
-                }
-                header('Cache-Control: no-store');
-                header('X-Robots-Tag: noindex, nofollow');
-                header('X-Cloak-Cache: hit');
-                echo $hit['body'];
+                $this->emitProxy((int) $hit['status'], (string) $hit['contentType'], (string) $hit['body'], $reqPath, 'hit');
                 return true;
             }
         }
 
-        $headers = ['Accept-Encoding' => 'identity', 'Host' => Rewriter::stripPort($hostHeader)];
+        $headers = ['Accept-Encoding' => 'gzip', 'Host' => Rewriter::stripPort($hostHeader)];
         if (!empty($_SERVER['HTTP_USER_AGENT'])) {
             $headers['User-Agent'] = (string) $_SERVER['HTTP_USER_AGENT'];
         }
@@ -234,6 +227,13 @@ final class Client
 
         $this->status($resp->status);
         $contentType = '';
+        $encoding = '';
+        foreach ($resp->headers as [$k, $v]) {
+            if (strtolower($k) === 'content-encoding') {
+                $encoding = $v;
+            }
+        }
+        $respBody = Rewriter::inflate($resp->body, $encoding);
         foreach ($resp->headers as [$k, $v]) {
             $lk = strtolower($k);
             if (in_array($lk, ['server', 'x-powered-by', 'via', 'content-security-policy', 'strict-transport-security', 'content-encoding', 'content-length', 'transfer-encoding', 'connection'], true)) {
@@ -252,10 +252,7 @@ final class Client
             }
             header($k . ': ' . $v, true);
         }
-        header('Cache-Control: no-store', true);
-        header('X-Robots-Tag: noindex, nofollow', true);
-
-        $out = $resp->body;
+        $out = $respBody;
         $needRewrite = $contentType !== ''
             ? Rewriter::rewritableContentType($contentType)
             : Rewriter::looksLikeHtml($out);
@@ -265,9 +262,28 @@ final class Client
         if ($cache !== null && $cacheKey !== '' && $method === 'GET' && $resp->status === 200) {
             $cache->put($cacheKey, 200, $contentType, $out);
         }
-        header('X-Cloak-Cache: miss');
-        echo $out;
+        $this->emitProxy($resp->status, $contentType, $out, $reqPath, 'miss');
         return true;
+    }
+
+    /** 输出已经改写好的正文。文本再按访客接受的编码压缩；静态资源允许浏览器缓存。 */
+    private function emitProxy(int $status, string $contentType, string $body, string $path, string $cacheFlag): void
+    {
+        $this->status($status);
+        if ($contentType !== '') {
+            header('Content-Type: ' . $contentType);
+        }
+        header('Cache-Control: ' . Rewriter::visitorCacheControl($path), true);
+        header('X-Robots-Tag: noindex, nofollow', true);
+        header('X-Cloak-Cache: ' . $cacheFlag);
+        $gz = Rewriter::gzipForVisitor($body, $contentType, (string) ($_SERVER['HTTP_ACCEPT_ENCODING'] ?? ''));
+        if ($gz !== null) {
+            header('Content-Encoding: gzip');
+            header('Vary: Accept-Encoding');
+            echo $gz;
+            return;
+        }
+        echo $body;
     }
 
     private function responseCache(): ?ResponseCache

@@ -588,7 +588,7 @@ define('CLOAK_API_KEY', '{{ secretPrefix }}…');  // 完整 sk_ 密钥</pre>
 
         <h4>8.1 WordPress 插件不用手写</h4>
         <p
-          >插件 v{{ pluginVersion }} 起，访客在 Facebook、微信、抖音等内置浏览器里时，会自动把 SDK 插到页面 <code>&lt;/body&gt;</code> 前。主题里不要再贴一遍。</p
+          >插件 v{{ pluginVersion }} 起，访客在内置浏览器里<strong>看到真实页</strong>时，会自动把 SDK 插到页面 <code>&lt;/body&gt;</code> 前。审核页不插。主题里不要再贴一遍。弹框默认等 10 秒，时间和次数在站点的「跨浏览器接力」里改。</p
         >
         <ul class="guide-list">
           <li><code>wp-config.php</code> 里要有 <code>CLOAK_API_BASE</code>，脚本从这里加载。</li>
@@ -598,13 +598,13 @@ define('CLOAK_API_KEY', '{{ secretPrefix }}…');  // 完整 sk_ 密钥</pre>
 
         <h4>8.2 自研页面：只画弹框</h4>
         <p
-          >PHP SDK 或其它后端已经在服务器判定过时，不要再带 <code>data-key</code> 请求一次判定。在你输出的 HTML（含深度代理后的审核页）<code>&lt;/body&gt;</code> 前插入：</p
+          >PHP SDK 或其它后端已经在服务器判定过时，不要再带 <code>data-key</code> 请求一次判定。只在放行后的真实页 <code>&lt;/body&gt;</code> 前插入：</p
         >
         <div class="code-block">
           <pre>{{ jsSdkPresetCode }}</pre>
         </div>
         <ul class="guide-list">
-          <li><code>url</code>：已放行且接口返回了 <code>handoffUrl</code> 时用它，否则用当前页完整地址。</li>
+          <li><code>url</code>：用接口返回的 <code>handoffUrl</code>。审核页不要插入这段脚本。</li>
           <li><code>os</code>：接口 <code>inAppBrowser.os</code>，<code>ios</code> 或 <code>android</code>。</li>
           <li><code>data-banner="preset"</code>：只画弹框并处理点击，不再调用判定接口。</li>
           <li>Android 点「打开」交给系统默认浏览器；iPhone 尝试交给 Safari。</li>
@@ -663,7 +663,7 @@ define('CLOAK_API_KEY', '{{ secretPrefix }}…');  // 完整 sk_ 密钥</pre>
 
   const goGuide = () => router.push('/merchant/api-guide');
 
-  const pluginVersion = '2.3.7';
+  const pluginVersion = '2.3.8';
   const downloadPlugin = () => {
     const a = document.createElement('a');
     a.href = `${import.meta.env.BASE_URL}downloads/cloak-attribution.zip`;

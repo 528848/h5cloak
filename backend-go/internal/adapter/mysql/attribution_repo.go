@@ -282,6 +282,46 @@ func (r *AttributionRepo) CodeStats(ctx context.Context, merchantID, siteID uint
 	return s, nil
 }
 
+// CodeTouchStat 归因码在页面请求上的人数。同一页面、同一 IP 只计一次。
+type CodeTouchStat struct {
+	Visits int64
+	First  int64
+	Return int64
+}
+
+// CodeTouchStats 用判定日志按页面 + IP 汇总，不使用 promo_codes 上按请求累加的计数。
+func (r *AttributionRepo) CodeTouchStats(ctx context.Context, ids []uint64) (map[uint64]CodeTouchStat, error) {
+	out := map[uint64]CodeTouchStat{}
+	if len(ids) == 0 {
+		return out, nil
+	}
+	sql := `SELECT code_id,
+		COUNT(DISTINCT visit_ip) AS visits,
+		COUNT(DISTINCT IF(touch_type = 'first', CONCAT(page_path, CHAR(10), visit_ip), NULL)) AS firsts,
+		COUNT(DISTINCT IF(touch_type = 'return', CONCAT(page_path, CHAR(10), visit_ip), NULL)) AS returns
+	FROM (
+		SELECT code_id, touch_type,
+			` + pageKeySQL + ` AS page_path,
+			` + visitIPSQL + ` AS visit_ip
+		FROM decision_logs
+		WHERE code_id IN ? AND content = 'real' AND ` + pagePathSQL + `
+	) t
+	GROUP BY code_id`
+	var rows []struct {
+		CodeID uint64
+		Visits int64
+		Firsts int64
+		Returns int64
+	}
+	if err := r.db.WithContext(ctx).Raw(sql, ids).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		out[row.CodeID] = CodeTouchStat{Visits: row.Visits, First: row.Firsts, Return: row.Returns}
+	}
+	return out, nil
+}
+
 // Channels 商户下出现过的渠道标签。
 func (r *AttributionRepo) Channels(ctx context.Context, merchantID uint64) ([]string, error) {
 	var rows []string

@@ -13,8 +13,9 @@ const (
 	StatusEnabled  = "enabled"
 	StatusDisabled = "disabled"
 
-	CombineAny         = "require_any"
-	CombineClickOrCode = "require_click_or_code"
+	CombineAny          = "require_any"
+	CombineClickOrCode  = "require_click_or_code"
+	CombineClickAndCode = "require_click_and_code"
 
 	ReuseDowngrade = "downgrade"
 	ReuseReview    = "review"

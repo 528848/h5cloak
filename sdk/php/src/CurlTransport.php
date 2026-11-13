@@ -9,8 +9,12 @@ final class CurlTransport implements HttpTransport
     {
         $ch = curl_init();
         $hdrList = [];
+        $callerEncoding = false;
         foreach ($headers as $k => $v) {
             $hdrList[] = $k . ': ' . $v;
+            if (strcasecmp((string) $k, 'Accept-Encoding') === 0) {
+                $callerEncoding = true;
+            }
         }
         $respHeaders = [];
         $opts = [
@@ -21,7 +25,6 @@ final class CurlTransport implements HttpTransport
             CURLOPT_FOLLOWLOCATION => false,
             CURLOPT_TIMEOUT => max(1, $timeout),
             CURLOPT_CONNECTTIMEOUT => max(1, $timeout),
-            CURLOPT_ENCODING => 'identity',
             CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$respHeaders) {
                 $len = strlen($line);
                 $p = strpos($line, ':');
@@ -31,6 +34,10 @@ final class CurlTransport implements HttpTransport
                 return $len;
             },
         ];
+        // 调用方要自己解 gzip 时不要让 curl 再解码一次。其它请求保持明文。
+        if (!$callerEncoding) {
+            $opts[CURLOPT_ENCODING] = 'identity';
+        }
         if ($body !== null) {
             $opts[CURLOPT_POSTFIELDS] = $body;
         }

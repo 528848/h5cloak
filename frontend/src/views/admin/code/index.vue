@@ -97,6 +97,9 @@
         :datasource="datasource"
         cache-key="adminPlatformCodeTable"
       >
+        <template #code="{ row }">
+          <code-cell :text="row.code" />
+        </template>
         <template #action="{ row }">
           <el-button
             v-permission="'platform:code:status'"
@@ -114,6 +117,7 @@
 
 <script setup>
   import { ref, onMounted } from 'vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage } from 'ele-admin-plus';
   import { useFormData } from '@/utils/use-form-data';
@@ -161,17 +165,17 @@
     loadSites();
   };
   const columns = [
-    { prop: 'code', label: '归因码', minWidth: 110 },
-    { prop: 'name', label: '名称', minWidth: 100 },
-    { prop: 'merchantName', label: '商户', minWidth: 100 },
-    { prop: 'siteName', label: '站点', minWidth: 120 },
+    { prop: 'code', label: '归因码', minWidth: 160, slot: 'code' },
+    { prop: 'name', label: '名称', minWidth: 100, formatter: (row) => row.name || '-' },
+    { prop: 'merchantName', label: '商户', minWidth: 100, formatter: (row) => row.merchantName || '-' },
+    { prop: 'siteName', label: '站点', minWidth: 120, formatter: (row) => row.siteName || '-' },
     {
       prop: 'status',
       label: '状态',
       width: 90,
       formatter: (row) => (row.status === 'enabled' ? '启用' : '停用')
     },
-    { prop: 'channel', label: '渠道', minWidth: 90 },
+    { prop: 'channel', label: '渠道', minWidth: 90, formatter: (row) => row.channel || '-' },
     { prop: 'createdAt', label: '创建时间', width: 160 },
     {
       columnKey: 'action',

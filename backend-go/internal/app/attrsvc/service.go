@@ -112,6 +112,9 @@ func (s *Service) Params(ctx context.Context, merchantID, siteID uint64) ([]map[
 	out := make([]map[string]any, 0, len(rows))
 	seen := map[string]bool{}
 	for _, p := range rows {
+		if p.ParamType == attribution.TypeCampaign {
+			continue
+		}
 		key := strings.ToLower(p.Name)
 		if seen[key] {
 			continue
@@ -251,7 +254,7 @@ func (s *Service) buildParam(ctx context.Context, siteID uint64, in ParamInput) 
 			valid = true
 		}
 	}
-	if !valid {
+	if !valid || in.ParamType == attribution.TypeCampaign {
 		return nil, errf(400, "参数类型无效")
 	}
 	if in.MinLen == 0 {
@@ -337,7 +340,9 @@ func (s *Service) SaveRule(ctx context.Context, merchantID, siteID uint64, in Ru
 	if _, err := s.ownedSite(ctx, merchantID, siteID); err != nil {
 		return err
 	}
-	if in.CombineRule != attribution.CombineClickOrCode {
+	switch in.CombineRule {
+	case attribution.CombineClickOrCode, attribution.CombineClickAndCode:
+	default:
 		in.CombineRule = attribution.CombineAny
 	}
 	if in.ClickReuseAction != attribution.ReuseReview {
@@ -423,9 +428,19 @@ func (s *Service) ListCodes(ctx context.Context, merchantID uint64, in CodeListI
 		merchantNames, _ = s.sites.MerchantNames(ctx, mids)
 	}
 	now := time.Now()
+	stats := s.codeTouchStats(ctx, rows)
 	out := make([]map[string]any, 0, len(rows))
 	for i := range rows {
 		row := codeRow(&rows[i], now)
+		if st, ok := stats[rows[i].ID]; ok {
+			row["visitCount"] = st.Visits
+			row["firstPassCount"] = st.First
+			row["returnCount"] = st.Return
+		} else {
+			row["visitCount"] = int64(0)
+			row["firstPassCount"] = int64(0)
+			row["returnCount"] = int64(0)
+		}
 		row["siteName"] = names[rows[i].SiteID]
 		row["merchantId"] = rows[i].MerchantID
 		row["merchantName"] = merchantNames[rows[i].MerchantID]
@@ -570,10 +585,7 @@ func (s *Service) GenerateCodes(ctx context.Context, merchantID, userID uint64, 
 	if err != nil {
 		return nil, errf(400, "有效期格式无效")
 	}
-	codeType := in.CodeType
-	if codeType != attribution.CodeCampaign {
-		codeType = attribution.CodeDistributor
-	}
+	codeType := attribution.CodeDistributor
 	start := time.Now()
 	candidates := make([]string, 0, in.Count*2)
 	seen := map[string]bool{}
@@ -631,10 +643,7 @@ func (s *Service) ImportCodes(ctx context.Context, merchantID, userID uint64, in
 	if _, err := s.ownedSite(ctx, merchantID, in.SiteID); err != nil {
 		return nil, err
 	}
-	codeType := in.CodeType
-	if codeType != attribution.CodeCampaign {
-		codeType = attribution.CodeDistributor
-	}
+	codeType := attribution.CodeDistributor
 	lines := strings.Split(strings.ReplaceAll(in.Content, "\r\n", "\n"), "\n")
 	type conflict struct {
 		Line   int    `json:"line"`
@@ -732,6 +741,7 @@ func (s *Service) ExportCodes(ctx context.Context, merchantID uint64, in CodeLis
 		return nil, err
 	}
 	names := s.siteNames(ctx, rows)
+	stats := s.codeTouchStats(ctx, rows)
 	var b strings.Builder
 	b.WriteString("\xEF\xBB\xBF")
 	w := csv.NewWriter(&b)
@@ -742,7 +752,7 @@ func (s *Service) ExportCodes(ctx context.Context, merchantID uint64, in CodeLis
 		_ = w.Write([]string{
 			c.Code, c.CodeType, deref(c.Name), deref(c.Channel), c.EffectiveStatus(now),
 			fmtTime(c.StartsAt), fmtTime(c.ExpiresAt), names[c.SiteID],
-			fmt.Sprint(c.VisitCount), fmt.Sprint(c.FirstPassCount), fmt.Sprint(c.ReturnCount), fmt.Sprint(c.ConversionCount),
+			fmt.Sprint(stats[c.ID].Visits), fmt.Sprint(stats[c.ID].First), fmt.Sprint(stats[c.ID].Return), fmt.Sprint(c.ConversionCount),
 			fmtTime(c.LastVisitAt), c.CreatedAt.Format(timeLayout),
 		})
 	}
@@ -949,10 +959,22 @@ func (s *Service) buildCode(merchantID, userID uint64, in CodeInput) (*attributi
 		uid = &userID
 	}
 	return &attribution.Code{
-		MerchantID: merchantID, SiteID: in.SiteID, Code: in.Code, CodeType: in.CodeType,
+		MerchantID: merchantID, SiteID: in.SiteID, Code: in.Code, CodeType: attribution.CodeDistributor,
 		Name: strPtr(in.Name), Channel: strPtr(in.Channel), Status: in.Status,
 		StartsAt: starts, ExpiresAt: exp, AllowedPaths: raw, Remark: strPtr(in.Remark), CreatedBy: uid,
 	}, nil
+}
+
+func (s *Service) codeTouchStats(ctx context.Context, rows []attribution.Code) map[uint64]mysql.CodeTouchStat {
+	ids := make([]uint64, 0, len(rows))
+	for i := range rows {
+		ids = append(ids, rows[i].ID)
+	}
+	stats, err := s.repo.CodeTouchStats(ctx, ids)
+	if err != nil || stats == nil {
+		return map[uint64]mysql.CodeTouchStat{}
+	}
+	return stats
 }
 
 func (s *Service) siteNames(ctx context.Context, rows []attribution.Code) map[uint64]string {

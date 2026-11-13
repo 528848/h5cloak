@@ -186,6 +186,49 @@ final class Rewriter
         return is_string($decoded) && $decoded !== '' ? $decoded : $body;
     }
 
+    /**
+     * 发给访客前压缩文本正文。图片、字体本身已压缩，不再套一层。
+     * 小于 1KB 或对方不接受 gzip 时返回 null，调用方原样输出。
+     */
+    public static function gzipForVisitor(string $body, string $contentType, string $acceptEncoding): ?string
+    {
+        if ($body === '' || strlen($body) < 1024 || stripos($acceptEncoding, 'gzip') === false || !function_exists('gzencode')) {
+            return null;
+        }
+        if ($contentType !== '') {
+            if (!self::rewritableContentType($contentType)) {
+                return null;
+            }
+        } elseif (!self::looksLikeHtml($body)) {
+            return null;
+        }
+        $gz = gzencode($body, 1);
+        if (!is_string($gz) || $gz === '' || strlen($gz) >= strlen($body)) {
+            return null;
+        }
+        return $gz;
+    }
+
+    /**
+     * HTML 同一地址会按访客换成真实页，必须 no-store。
+     * 样式、脚本、图片、字体对所有访客相同，允许浏览器缓存一天。
+     */
+    public static function visitorCacheControl(string $path): string
+    {
+        $path = strtolower((string) strtok($path, '?'));
+        $suffixes = [
+            '.css', '.js', '.mjs', '.map',
+            '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico',
+            '.woff', '.woff2', '.ttf', '.eot', '.otf',
+        ];
+        foreach ($suffixes as $suffix) {
+            if (substr($path, -strlen($suffix)) === $suffix) {
+                return 'public, max-age=86400';
+            }
+        }
+        return 'no-store';
+    }
+
     public static function looksLikeHtml(string $body): bool
     {
         $probe = substr($body, 0, 1024);

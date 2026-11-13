@@ -67,10 +67,5 @@ func (h *logHandler) stats(c *gin.Context) {
 		writeErr(c, err)
 		return
 	}
-	if mid := merchantScope(c); mid > 0 {
-		if n, err := h.svc.Usage(c.Request.Context(), mid); err == nil {
-			row["monthUsage"] = n
-		}
-	}
 	response.Success(c, row, "查询成功")
 }

@@ -127,7 +127,7 @@ func (s *Service) answerConversion(ctx context.Context, merchantID uint64, in in
 	}
 	out := fmt.Sprintf("💰 <b>%s 转化</b>\n成交 %d 笔　金额 %.2f", scope, d.Conversions, d.Amount)
 	if len(d.TopCodes) > 0 {
-		out += "\nTop 分销码：" + joinKV(d.TopCodes)
+		out += "\nTop 归因码：" + joinKV(d.TopCodes)
 	}
 	return out
 }

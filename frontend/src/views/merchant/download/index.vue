@@ -108,7 +108,7 @@
     { value: 'decision_logs', label: '决策日志' },
     { value: 'report_channel', label: '渠道报表' },
     { value: 'report_code', label: '归因码报表' },
-    { value: 'report_campaign', label: '活动码报表' },
+    { value: 'report_campaign', label: '活动码报表（已取消）' },
     { value: 'report_path', label: '路径报表' },
     { value: 'report_conversion', label: '转化报表' }
   ];

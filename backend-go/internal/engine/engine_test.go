@@ -253,6 +253,22 @@ func TestCombineRule(t *testing.T) {
 	if d := e.Decide(ctx, req(s, "https://shop.example.com/?utm_source=tiktok&ref=ALICE")); d.Content != ContentReal {
 		t.Fatalf("code under click_or_code should pass: %+v", d)
 	}
+
+	s.Rule.CombineRule = "require_click_and_code"
+	_ = s.Compile()
+	click := "IwAR0123456789abcdefgh"
+	if d := e.Decide(ctx, req(s, "https://shop.example.com/?fbclid="+click)); d.Content != ContentReview {
+		t.Fatalf("click only under click_and_code should review: %+v", d)
+	}
+	if d := e.Decide(ctx, req(s, "https://shop.example.com/?ref=ALICE")); d.Content != ContentReview {
+		t.Fatalf("code only under click_and_code should review: %+v", d)
+	}
+	if d := e.Decide(ctx, req(s, "https://shop.example.com/?utm_source=tiktok&ref=ALICE")); d.Content != ContentReview {
+		t.Fatalf("source plus code under click_and_code should review: %+v", d)
+	}
+	if d := e.Decide(ctx, req(s, "https://shop.example.com/?fbclid="+click+"&ref=ALICE")); d.Content != ContentReal {
+		t.Fatalf("click and code under click_and_code should pass: %+v", d)
+	}
 }
 
 func TestReturnVisit(t *testing.T) {

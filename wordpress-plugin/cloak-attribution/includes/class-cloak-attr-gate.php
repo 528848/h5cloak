@@ -198,7 +198,7 @@ class Cloak_Attr_Gate
         if ($origin === '' || !$this->is_asset_request() || $this->local_asset_exists()) {
             return false;
         }
-        $this->prevent_page_cache();
+        // 静态资源和访客无关，允许浏览器和 LiteSpeed 缓存。不要打 no-cache。
         $served = Cloak_Attr_Deep_Proxy::serve($origin, (string) ($settings['review_deep_host'] ?? ''), Cloak_Attr_Deep_Proxy::cache_from_settings($settings));
         if (!$served && !headers_sent()) {
             status_header(404);
@@ -287,15 +287,20 @@ class Cloak_Attr_Gate
 
     /**
      * 只把本次要打开的地址交给客户站点上的 JS SDK。弹框和跳转由 sdk.js 绘制。
-     * 已放行时用接力地址，审核页用当前地址。
+     * 只在放行的真实内容上插入。审核页不弹。
      */
     private function browser_sdk(array $data): string
     {
+        $content = (string) ($data['content'] ?? '');
+        if ($content !== 'real' && $content !== 'bypass') {
+            return '';
+        }
         $settings = Cloak_Attr_Settings::get();
         if (empty($settings['inject_banner']) || !empty($_COOKIE['_ck_hb'])) {
             return '';
         }
-        if (isset($data['handoffBanner']) && empty($data['handoffBanner']['enabled'])) {
+        $banner = is_array($data['handoffBanner'] ?? null) ? $data['handoffBanner'] : [];
+        if (empty($banner['enabled'])) {
             return '';
         }
         $in = is_array($data['inAppBrowser'] ?? null) ? $data['inAppBrowser'] : [];
@@ -317,8 +322,14 @@ class Cloak_Attr_Gate
         $payload = wp_json_encode([
             'url' => $target,
             'os' => (string) ($in['os'] ?? ''),
-            'text' => (string) ($data['handoffBanner']['text'] ?? '在系统浏览器中打开'),
+            'text' => (string) ($banner['text'] ?? ''),
             'enabled' => true,
+            'delaySeconds' => array_key_exists('delaySeconds', $banner) ? $banner['delaySeconds'] : 10,
+            'cooldownMinutes' => array_key_exists('cooldownMinutes', $banner) ? $banner['cooldownMinutes'] : 30,
+            'maxShows' => array_key_exists('maxShows', $banner) ? $banner['maxShows'] : 3,
+            'dismissEnds' => !empty($banner['dismissEnds']),
+            'mobile' => $banner['mobile'] ?? null,
+            'desktop' => $banner['desktop'] ?? null,
         ]);
         if (!is_string($payload)) {
             return '';

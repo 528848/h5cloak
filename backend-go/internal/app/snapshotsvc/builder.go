@@ -52,6 +52,7 @@ func (b *Builder) Build(ctx context.Context, siteID uint64) (*snapshot.Site, err
 			Banner: site.HandoffBanner, BannerText: site.HandoffBannerText, LinkRewrite: site.HandoffLinkRewrite,
 			TokenTTLHours: site.HandoffTokenTTLHours, TokenMaxUses: site.HandoffTokenMaxUses,
 			MatchEnabled: site.HandoffMatchEnabled, MatchMinutes: site.HandoffMatchMinutes, MatchSystemOnly: site.HandoffMatchSysOnly,
+			Prompt: handoffPromptOf(site.HandoffPrompt),
 		},
 		KeyVersion:     site.TokenKeyVersion,
 		PublishableKey: site.PublishableKey, SecretPrefix: site.SecretPrefix, SecretHash: site.SecretHash, SecretEnc: site.SecretEnc,
@@ -179,6 +180,9 @@ func mergeParams(rows []attribution.Param) []snapshot.Param {
 	order := []string{}
 	for i := range rows {
 		p := &rows[i]
+		if p.ParamType == attribution.TypeCampaign {
+			continue
+		}
 		key := strings.ToLower(p.Name)
 		if existing, ok := byName[key]; ok {
 			if p.SiteID > existing.SiteID {
@@ -201,6 +205,14 @@ func mergeParams(rows []attribution.Param) []snapshot.Param {
 		})
 	}
 	return out
+}
+
+func handoffPromptOf(raw []byte) snapshot.Prompt {
+	var stored snapshot.Prompt
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &stored)
+	}
+	return stored
 }
 
 func deref(s *string) string {

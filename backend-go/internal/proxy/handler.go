@@ -260,7 +260,7 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request, req Request, ori
 	if d.VisitorID != "" {
 		meta["X-Cloak-Visitor"] = d.VisitorID
 	}
-	// 用户关闭过引导条（会话 cookie _ck_hb）就不再注入引导条；链接延续不受影响
+	// 旧的会话关闭标记不再插入脚本。新的次数和冷却由页面里的 JS SDK 读 _ck_hg。
 	bannerWanted := req.Site.Handoff.Banner && !bannerDismissed(r)
 	injectHTMLNeeded := kind == "real" && d.InApp.InApp && d.HandoffToken != "" && (bannerWanted || req.Site.Handoff.LinkRewrite)
 	// 深度代理：源站域名与访客域名不同，需要改写响应体里的 URL

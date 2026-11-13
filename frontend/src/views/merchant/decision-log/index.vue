@@ -159,22 +159,22 @@
       value: stats.value.total,
       desc:
         stats.value.monthUsage != null
-          ? `本月累计 ${stats.value.monthUsage}`
-          : '全平台',
+          ? `按页面和 IP · 本月 ${stats.value.monthUsage}`
+          : '按页面和 IP',
       type: 'primary'
     },
     {
       key: 'real',
       label: '真实内容',
       value: stats.value.real,
-      desc: `首访 ${stats.value.first} · 回访 ${stats.value.return} · 交接 ${stats.value.handoff}`,
+      desc: `同一页面、同一 IP 计 1 次 · 首访 ${stats.value.first} · 回访 ${stats.value.return} · 交接 ${stats.value.handoff}`,
       type: 'success'
     },
     {
       key: 'review',
       label: '审核内容',
       value: stats.value.review,
-      desc: '无归因或校验失败',
+      desc: '按页面和 IP · 无归因或校验失败',
       type: 'warning'
     },
     {
@@ -189,7 +189,7 @@
       key: 'bypass',
       label: '直通',
       value: stats.value.bypass || 0,
-      desc: '静态资源等不判定',
+      desc: '静态资源不计入上面的页面统计',
       type: 'info'
     }
   ]);

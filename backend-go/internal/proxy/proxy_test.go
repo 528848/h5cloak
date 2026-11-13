@@ -236,7 +236,7 @@ func TestHTMLInjection(t *testing.T) {
 	if res.Kind != "real" || gotAccept != "identity" {
 		t.Fatalf("accept-encoding: %q %+v", gotAccept, res)
 	}
-	if !strings.Contains(body, `id="ck-handoff"`) || !strings.Contains(body, "Open in browser") || !strings.Contains(body, "x-safari-https://shop.test/lp?") {
+	if !strings.Contains(body, `__CLOAK_HANDOFF__`) || !strings.Contains(body, "Open in browser") || !strings.Contains(body, `data-banner="preset"`) || !strings.Contains(body, `"delaySeconds":10`) {
 		t.Fatalf("banner missing: %s", body)
 	}
 	if !strings.Contains(body, `href="/p?_ck=TOK123&amp;x=1"`) || !strings.Contains(body, `action="/buy?_ck=TOK123"`) {
@@ -253,7 +253,7 @@ func TestHTMLInjection(t *testing.T) {
 	r.Host = "shop.test"
 	r.AddCookie(&http.Cookie{Name: "_ck_hb", Value: "1"})
 	rec, _ = do(p, s, d, r)
-	if strings.Contains(rec.Body.String(), "ck-handoff") || !strings.Contains(rec.Body.String(), "_ck=TOK123") {
+	if strings.Contains(rec.Body.String(), "__CLOAK_HANDOFF__") || !strings.Contains(rec.Body.String(), "_ck=TOK123") {
 		t.Fatalf("dismissed banner: %s", rec.Body.String())
 	}
 	// 客户端接受 gzip 且正文够大：网关自己压缩
@@ -275,14 +275,14 @@ func TestHTMLInjection(t *testing.T) {
 		t.Fatal(err)
 	}
 	plain, _ := io.ReadAll(zr)
-	if !strings.Contains(string(plain), "ck-handoff") {
+	if !strings.Contains(string(plain), "__CLOAK_HANDOFF__") {
 		t.Fatal("gzipped body should contain banner")
 	}
 	// 系统浏览器不注入
 	d2 := realDecision()
 	d2.HandoffToken = ""
 	rec, _ = do(p, s, d2, httptest.NewRequest(http.MethodGet, "https://shop.test/lp", nil))
-	if strings.Contains(rec.Body.String(), "ck-handoff") {
+	if strings.Contains(rec.Body.String(), "__CLOAK_HANDOFF__") {
 		t.Fatal("must not inject for system browser")
 	}
 }

@@ -138,8 +138,21 @@ func TestJSCaptureFlow(t *testing.T) {
 	// 无参数无令牌 → review
 	w = jsPost(h, "http://localhost:5173", `{"key":"pk_test_js_0001","url":"https://shop.example.com/"}`)
 	_ = json.Unmarshal(w.Body.Bytes(), &back)
-	if w.Code != 200 || back.Data.Content != "review" {
-		t.Fatalf("review: %d %+v", w.Code, back.Data)
+	if w.Code != 200 || back.Data.Content != "review" || strings.Contains(w.Body.String(), `"delaySeconds"`) {
+		t.Fatalf("review: %d %s", w.Code, w.Body.String())
+	}
+
+	// 内置浏览器放行才带引导配置；审核不带
+	r = httptest.NewRequest(http.MethodPost, "/api/open/v2/js/capture", strings.NewReader(`{"key":"pk_test_js_0001","url":"https://shop.example.com/lp?ref=ALICE"}`))
+	r.Header.Set("Origin", "https://shop.example.com")
+	r.Header.Set("User-Agent", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 [FBAN/FBIOS;FBAV/430.0.0]")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"delaySeconds":10`) || !strings.Contains(w.Body.String(), `"maxShows":3`) {
+		t.Fatalf("in-app banner: %d %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"content":"review"`) {
+		t.Fatalf("in-app with code should pass: %s", w.Body.String())
 	}
 
 	// SDK 脚本

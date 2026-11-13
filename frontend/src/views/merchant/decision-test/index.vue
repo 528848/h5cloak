@@ -247,13 +247,10 @@
                 <span v-else class="muted-text">-</span>
               </el-descriptions-item>
               <el-descriptions-item label="归因码">
-                <template v-if="result.decision.code">
-                  <span class="mono">{{ result.decision.code.code }}</span>
-                  <span v-if="result.decision.code.name" class="muted-text">
-                    （{{ result.decision.code.name }}）
-                  </span>
-                </template>
-                <span v-else class="muted-text">-</span>
+                <code-cell :text="result.decision.code?.code" />
+                <span v-if="result.decision.code?.name" class="muted-text">
+                  （{{ result.decision.code.name }}）
+                </span>
               </el-descriptions-item>
               <el-descriptions-item label="识别到的参数" :span="2">
                 <el-space
@@ -373,6 +370,7 @@
 
 <script setup>
   import { ref, reactive, watch, onMounted } from 'vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { useRoute } from 'vue-router';
   import { Refresh } from '@element-plus/icons-vue';
   import { EleMessage } from 'ele-admin-plus';

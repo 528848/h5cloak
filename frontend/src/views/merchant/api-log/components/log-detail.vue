@@ -45,8 +45,8 @@
           <template v-else>
             <div v-for="item in paramItems" :key="item.label" class="kv">
               <span class="kv-label">{{ item.label }}</span>
-              <span class="kv-value mono">{{ item.value }}</span>
-              <el-tooltip content="复制" placement="top">
+              <span class="kv-value mono">{{ item.value || '-' }}</span>
+              <el-tooltip v-if="item.value" content="复制" placement="top">
                 <el-button
                   link
                   type="primary"

@@ -141,9 +141,15 @@ func (s *Service) Detail(ctx context.Context, merchantID uint64, requestID strin
 	return row, nil
 }
 
-// Stats 最近 24 小时统计。
+// Stats 最近 24 小时与本月的页面统计。同一页面、同一 IP 只计一次。
 func (s *Service) Stats(ctx context.Context, merchantID, siteID uint64) (map[string]any, error) {
-	m, err := s.repo.LogStats(ctx, merchantID, siteID, time.Now().Add(-24*time.Hour))
+	now := time.Now()
+	m, err := s.repo.LogStats(ctx, merchantID, siteID, now.Add(-24*time.Hour))
+	if err != nil {
+		return nil, err
+	}
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	month, err := s.repo.LogStats(ctx, merchantID, siteID, monthStart)
 	if err != nil {
 		return nil, err
 	}
@@ -151,6 +157,7 @@ func (s *Service) Stats(ctx context.Context, merchantID, siteID uint64) (map[str
 		"total": m["total"], "real": m["content:real"], "review": m["content:review"],
 		"block": m["content:block"] + m["content:not_found"], "bypass": m["content:bypass"],
 		"first": m["touch:first"], "return": m["touch:return"], "handoff": m["touch:handoff"], "none": m["touch:none"],
+		"monthUsage": month["total"],
 	}, nil
 }
 

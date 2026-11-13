@@ -232,7 +232,10 @@ payload = {"vid":"01J...","sid":123,"aid":456,"iat":1762000000,"exp":1764592000,
 - 参数字典编译为：`map[lowercase(name|alias)] -> ParamDef`。提取时遍历查询参数一次。
 - `ParamDef`：类型（click/source/distributor/campaign/free）、格式（预编译正则、长度区间）、`sufficient`、状态。
 - 分销码与活动码：站点快照内 `map[code] -> CodeDef`（状态、有效期、允许路径匹配器）。校验失败类型：`not_registered`、`disabled`、`expired`、`path_not_allowed`、`format_invalid`、`source_not_allowed`。
-- 组合规则：`require_any` / `require_click_or_code`，按站点配置。
+- 组合规则按站点配置，三选一：
+  - `require_any`：任意一个 `sufficient` 且校验通过的参数即归因。
+  - `require_click_or_code`：有效归因码或通过校验的点击参数即可归因；只有来源参数不归因。
+  - `require_click_and_code`：必须同时有有效归因码（`Code != nil`）和通过校验的点击参数（`HasClick`）。只有点击参数、只有归因码、或来源参数加归因码，都不归因。此规则下参数的 `sufficient` 不再单独决定放行。
 - 点击参数转发限制（可选）：Redis `INCR click:{site}:{hash(value)}` 带 TTL，超过阈值记为 `click_reused` 并按配置处理。
 
 ### 5.5 来源置信度
@@ -357,7 +360,7 @@ flowchart TD
 ### 6.6 内置浏览器引导条与链接延续
 
 - 仅对 `Content-Type: text/html` 且放行的响应处理；响应体若为 gzip/br 需先解压再重写，因此开启此功能的站点会向源站发送 `Accept-Encoding: identity`，由网关自己压缩后返回。
-- 引导条：在 `</body>` 前注入一段内联 HTML + CSS（无外部请求），文案与样式按站点配置；链接为 `handoffUrl`；iOS 下额外提供 `x-safari-https://` 唤起 Safari，Android 提供 `intent://` 唤起 Chrome；用户关闭后写一个会话级 cookie 不再显示。
+- 引导弹框不由网关内联 HTML。出现时机、关闭、重试、电脑与手机文案由 JS SDK 执行，见 `docs/v2/technical-design-handoff-prompt.md`。跳转仍是 iOS `x-safari-https://`、Android `intent://` 交给系统默认浏览器。
 - 站内链接延续：流式 tokenizer 扫描 `<a href>`、`<form action>` 的同域相对/绝对链接追加 `_ck`；不处理 JS 动态生成的链接，接入指南说明可由 JS SDK 补齐。
 - 以上两项默认只在 UA 为内置浏览器时生效，系统浏览器不注入。
 

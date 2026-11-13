@@ -47,14 +47,12 @@ class Cloak_Attr_Deep_Proxy
             $cache_key = \Cloak\Sdk\ResponseCache::key('GET', (string) $op['host'], $pub, $scheme, $req_path === '' ? '/' : $req_path, $query);
             $hit = $cache->get($cache_key);
             if (is_array($hit)) {
-                self::emit_cached((int) $hit['status'], (string) $hit['contentType'], (string) $hit['body'], $inject);
+                self::emit((int) $hit['status'], (string) $hit['contentType'], (string) $hit['body'], $inject, $req_path, 'hit');
                 return true;
             }
         }
 
-        $headers = [
-            'Accept-Encoding' => 'identity',
-        ];
+        $headers = [];
         // 只在回源 Host 和地址里的主机不同时改 Host。相同的 Host 交给 HTTP 客户端自己带，
         // 部分主机上手工再写一次会让回源直接失败。
         if (strcasecmp(Rewriter::stripPort($host_header), Rewriter::stripPort($op['host'])) !== 0) {
@@ -116,21 +114,13 @@ class Cloak_Attr_Deep_Proxy
         }
         $body = self::rewrite_document($body, $hosts, $pub, $scheme, $content_type);
 
-        if (!headers_sent()) {
-            status_header($status);
-            nocache_headers();
-            header('X-Cloak-Content: review');
-            header('X-Robots-Tag: noindex, nofollow');
-            if ($content_type !== '') {
-                header('Content-Type: ' . $content_type);
-            }
-            header('X-Cloak-Cache: miss');
-            self::forward_set_cookies($res, $op['host'], $hh, $pub);
-        }
         if ($cache instanceof \Cloak\Sdk\ResponseCache && $cache_key !== '' && $status === 200) {
             $cache->put($cache_key, 200, $content_type, $body);
         }
-        echo self::with_browser_bar($body, $content_type, $inject); // phpcs:ignore WordPress.Security.EscapeOutput
+        if (!headers_sent()) {
+            self::forward_set_cookies($res, $op['host'], $hh, $pub);
+        }
+        self::emit($status, $content_type, $body, $inject, $req_path, 'miss');
         return true;
     }
 
@@ -154,19 +144,31 @@ class Cloak_Attr_Deep_Proxy
         return WP_CONTENT_DIR . '/cache/cloak-attribution';
     }
 
-    private static function emit_cached(int $status, string $content_type, string $body, string $inject): void
+    private static function emit(int $status, string $content_type, string $body, string $inject, string $path, string $cache_flag): void
     {
+        $body = self::with_browser_bar($body, $content_type, $inject);
+        $gz = Rewriter::gzipForVisitor($body, $content_type, (string) ($_SERVER['HTTP_ACCEPT_ENCODING'] ?? ''));
         if (!headers_sent()) {
             status_header($status);
-            nocache_headers();
+            $cache_control = Rewriter::visitorCacheControl($path);
+            if ($cache_control === 'no-store') {
+                nocache_headers();
+                header('Cache-Control: no-store');
+            } else {
+                header('Cache-Control: ' . $cache_control);
+            }
             header('X-Cloak-Content: review');
             header('X-Robots-Tag: noindex, nofollow');
-            header('X-Cloak-Cache: hit');
+            header('X-Cloak-Cache: ' . $cache_flag);
             if ($content_type !== '') {
                 header('Content-Type: ' . $content_type);
             }
+            if ($gz !== null) {
+                header('Content-Encoding: gzip');
+                header('Vary: Accept-Encoding');
+            }
         }
-        echo self::with_browser_bar($body, $content_type, $inject); // phpcs:ignore WordPress.Security.EscapeOutput
+        echo $gz ?? $body; // phpcs:ignore WordPress.Security.EscapeOutput
     }
 
     /** 引导条按本次访客现插，不写进缓存，避免把某一个人的接力地址发给下一位。 */

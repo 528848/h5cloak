@@ -81,7 +81,7 @@
           />
         </template>
         <template #code="{ row }">
-          <span class="mono">{{ row.code }}</span>
+          <code-cell :text="row.code" />
         </template>
         <template #status="{ row }">
           <el-tag
@@ -135,6 +135,7 @@
 
 <script setup>
   import { ref, computed, watch, onMounted } from 'vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { useRouter } from 'vue-router';
   import { ElMessageBox } from 'element-plus';
   import { EleMessage, useModal } from 'ele-admin-plus';
@@ -219,7 +220,7 @@
       label: '码值',
       minWidth: 150,
       slot: 'code',
-      formatter: (row) => row.code
+      formatter: (row) => row.code || '-'
     },
     {
       prop: 'name',
@@ -233,7 +234,12 @@
       width: 100,
       formatter: (row) => row.channel || '-'
     },
-    { prop: 'siteName', label: '站点', minWidth: 120 },
+    {
+      prop: 'siteName',
+      label: '站点',
+      minWidth: 120,
+      formatter: (row) => row.siteName || '-'
+    },
     {
       prop: 'effectiveStatus',
       label: '状态',

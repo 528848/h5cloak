@@ -65,7 +65,7 @@
             </div>
             <div class="summary-item">
               <span>归因码</span>
-              <strong class="mono">{{ data.code || '-' }}</strong>
+              <code-cell :text="data.code" />
             </div>
             <div class="summary-item">
               <span>浏览器</span>
@@ -314,6 +314,7 @@
 
 <script setup>
   import { ref, onMounted } from 'vue';
+  import CodeCell from '@/components/CodeCell.vue';
   import { EleMessage, useModal } from 'ele-admin-plus';
   import { useMobile } from '@/utils/use-mobile';
   import { getDecisionLog } from '@/api/merchant/decision-log';
